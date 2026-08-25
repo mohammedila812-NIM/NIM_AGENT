@@ -2,6 +2,8 @@
 
 NIM Agent is a Manifest V3 browser extension for AI-assisted web research, browsing, and task automation. It is built with TypeScript, React, and WXT, and supports NVIDIA NIM plus other OpenAI-compatible model providers.
 
+> **Personal hobby project:** NIM Agent is created and maintained by Mohammed Ali as a non-commercial hobby project. You are welcome to download, study, modify, and improve it for non-commercial purposes. See [LICENSE](LICENSE) for the full terms.
+
 ## Highlights
 
 - Side-panel assistant with chat, task history, research notes, security log, and settings.
@@ -58,6 +60,8 @@ NIM Agent has no developer-operated backend. Requests are sent directly to the p
 - `docs/USER_GUIDE.md` — installation and usage guide.
 - `.env.example` — optional development configuration template without secrets.
 
-## License
+## Author and license
 
-No license has been specified for this project. Add one before distributing or accepting contributions.
+Created by **Mohammed Ali** as a personal, non-commercial hobby project.
+
+This project is source-available under the [PolyForm Noncommercial License 1.0.0](LICENSE). You may use, modify, and distribute it for non-commercial purposes. Commercial use requires prior written permission from Mohammed Ali.
