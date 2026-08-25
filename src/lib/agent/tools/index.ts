@@ -1,0 +1,266 @@
+import type { Tool } from '../../llm/types';
+
+export { webSearch } from './web-search';
+export { extractVisibleText, extractVisibleLinks } from './dom-reader';
+export { captureViewport } from './screenshot';
+export { navigateTo } from './navigator';
+export { clickElement, findElement, executeClickWithCache, selectOptionElement, pressKeyOnElement } from './clicker';
+export { typeIntoElement, isSensitiveField } from './typer';
+export { scrollPage } from './scroller';
+export { summarizeContent } from './summarizer';
+export { listTabs, switchTab, closeTab } from './tab-manager';
+export { extractTableFromPage } from './table-extractor';
+export { waitForDOMSettle, waitForSelector } from './wait-utils';
+export { validateToolCall, type ValidatedToolCall } from './schemas';
+export { shouldUseFallbackVision, MIN_DOM_CHARS } from './interaction-policy';
+export { getCachedSelector, cacheSelector } from './selector-cache';
+
+/** Tool declarations for OpenAI/NIM function calling specification */
+export const AGENT_TOOLS: Tool[] = [
+  {
+    type: 'function',
+    function: {
+      name: 'web_search',
+      description: 'Search the live web for information using a search engine.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'The search query to execute.' },
+          maxResults: { type: 'number', description: 'Maximum search results to return (default 5).' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'read_page',
+      description: 'Extract visible text, links, and indexed interactive elements ([1], [2], ...) with label and form metadata from current webpage.',
+      parameters: {
+        type: 'object',
+        properties: {
+          focusSelector: { type: 'string', description: 'Optional CSS selector to extract from a specific container.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'click_element',
+      description: 'Click an element or toggle a checkbox/radio by its numeric index (e.g. "1"), CSS selector, or semantic label.',
+      parameters: {
+        type: 'object',
+        properties: {
+          target: { type: 'string', description: 'Numeric index (e.g. "1"), CSS selector, or text of the element to click.' },
+          description: { type: 'string', description: 'Human-readable description of what this click accomplishes.' },
+        },
+        required: ['target'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'type_text',
+      description: 'Type text into an input field or contenteditable element by numeric index or selector.',
+      parameters: {
+        type: 'object',
+        properties: {
+          target: { type: 'string', description: 'Numeric index (e.g. "2"), CSS selector, label, or placeholder of the input field.' },
+          value: { type: 'string', description: 'The exact text to type into the field.' },
+        },
+        required: ['target', 'value'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'select_option',
+      description: 'Select an option in a <select> dropdown or custom dropdown menu by option text or value.',
+      parameters: {
+        type: 'object',
+        properties: {
+          target: { type: 'string', description: 'Numeric index (e.g. "3") or CSS selector of the <select> or dropdown element.' },
+          option: { type: 'string', description: 'Visible label or value of the option to select.' },
+        },
+        required: ['target', 'option'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'press_key',
+      description: 'Send a keyboard key press event (e.g. Enter, Tab, Escape, ArrowDown) to an element or page.',
+      parameters: {
+        type: 'object',
+        properties: {
+          key: { type: 'string', description: 'Key name (e.g. "Enter", "Tab", "Escape", "ArrowDown").' },
+          target: { type: 'string', description: 'Optional target element index (e.g. "2") or selector to focus before pressing key.' },
+        },
+        required: ['key'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'wait_for',
+      description: 'Wait for a specific CSS selector or element state to appear or disappear before proceeding.',
+      parameters: {
+        type: 'object',
+        properties: {
+          selector: { type: 'string', description: 'CSS selector to wait for (e.g. ".results-container", "#loading-spinner").' },
+          state: { type: 'string', enum: ['visible', 'hidden'], description: 'Wait until visible or hidden (default: visible).' },
+          timeoutMs: { type: 'number', description: 'Maximum milliseconds to wait (default: 5000).' },
+        },
+        required: ['selector'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'navigate_to',
+      description: 'Navigate the active tab to a specific URL.',
+      parameters: {
+        type: 'object',
+        properties: {
+          url: { type: 'string', description: 'The absolute URL to navigate to (e.g. https://...).' },
+          newTab: { type: 'boolean', description: 'Open in a new tab instead of current tab.' },
+        },
+        required: ['url'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'scroll_page',
+      description: 'Scroll the webpage up, down, or to a specific element.',
+      parameters: {
+        type: 'object',
+        properties: {
+          direction: { type: 'string', enum: ['up', 'down', 'to_element'], description: 'Scroll direction' },
+          pixels: { type: 'number', description: 'Number of pixels to scroll (optional).' },
+          selector: { type: 'string', description: 'Target element selector if direction is to_element.' },
+        },
+        required: ['direction'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'screenshot',
+      description: 'Capture a visual screenshot of the viewport when DOM structure is non-descriptive or complex.',
+      parameters: {
+        type: 'object',
+        properties: {
+          reason: { type: 'string', description: 'Explanation of why DOM text extraction was insufficient.' },
+        },
+        required: ['reason'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'summarize',
+      description: 'Summarize accumulated research facts or compress long context and save to Research Notes.',
+      parameters: {
+        type: 'object',
+        properties: {
+          focus: { type: 'string', description: 'Specific focus area for the summary.' },
+          markAsKeyFinding: { type: 'boolean', description: 'Flag output as a key finding that survives context compression.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_tabs',
+      description: 'List all open browser tabs in the current window with their IDs, titles, and URLs.',
+      parameters: {
+        type: 'object',
+        properties: {},
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'switch_tab',
+      description: 'Switch the active browser tab by tab ID or URL/title keyword.',
+      parameters: {
+        type: 'object',
+        properties: {
+          tabId: { type: 'string', description: 'Tab ID or URL keyword to switch to.' },
+        },
+        required: ['tabId'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'close_tab',
+      description: 'Close a browser tab by tab ID or close current active tab.',
+      parameters: {
+        type: 'object',
+        properties: {
+          tabId: { type: 'number', description: 'Optional tab ID to close.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'extract_table',
+      description: 'Extract structured tabular or repetitive card data from the page as JSON and CSV.',
+      parameters: {
+        type: 'object',
+        properties: {
+          selector: { type: 'string', description: 'Optional CSS selector for the target table/container.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'parallel_research',
+      description: 'Spawn parallel worker sub-agents across separate background tabs to research multiple URLs concurrently. Workers can interact with pages (click, type, scroll) or just extract static content. Ideal for multi-site comparisons, price checking, form filling, and paginated data collection.',
+      parameters: {
+        type: 'object',
+        properties: {
+          tasks: {
+            type: 'array',
+            description: 'List of 1–5 parallel research tasks to execute simultaneously.',
+            items: {
+              type: 'object',
+              properties: {
+                name: { type: 'string', description: 'Label for this sub-task (e.g. "Amazon Prices", "Flipkart Reviews")' },
+                url: { type: 'string', description: 'Target URL to research' },
+                instruction: { type: 'string', description: 'Specific extraction or interaction instructions for this page' },
+                maxSteps: { type: 'number', description: 'Optional max interaction steps for this worker (default: 8, max: 15)' },
+                mode: { 
+                  type: 'string', 
+                  enum: ['extract', 'interact'],
+                  description: 'Mode: "extract" for fast static scraping, "interact" for full interaction capability (click/type/scroll). Default: "interact".'
+                },
+              },
+              required: ['name', 'url', 'instruction'],
+            },
+          },
+        },
+        required: ['tasks'],
+      },
+    },
+  },
+];

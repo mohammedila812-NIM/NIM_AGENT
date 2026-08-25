@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# WXT build and development output
+.output/
+.wxt/
+
+# Test artefacts
+coverage/
+playwright-report/
+test-results/
+
+# Local configuration and secrets
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Local notes and operating-system files
+bug.txt
+*.log
+.DS_Store
+Thumbs.db
