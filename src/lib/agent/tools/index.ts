@@ -17,6 +17,16 @@ export { getCachedSelector, cacheSelector } from './selector-cache';
 
 export { recallSessionHistory } from './session-recall';
 export { executeBatchFormFill, formatBatchFillResult } from './form-filler';
+export { exportDataToFile, formatExportResult } from './data-exporter';
+export { inspectPageState, formatInspectedState } from './state-inspector';
+export {
+  setScratchpadVar,
+  getScratchpadVar,
+  listScratchpadVars,
+  clearScratchpad,
+  executeScratchpadWrite,
+  executeScratchpadRead,
+} from '../scratchpad';
 
 /** Tool declarations for OpenAI/NIM function calling specification */
 export const AGENT_TOOLS: Tool[] = [
@@ -317,6 +327,74 @@ export const AGENT_TOOLS: Tool[] = [
           },
         },
         required: ['fields'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'export_data',
+      description: 'Trigger a native browser download as .csv, .json, .md, or .txt directly to the user Downloads folder from tables, search comparisons, or research notes.',
+      parameters: {
+        type: 'object',
+        properties: {
+          format: { type: 'string', enum: ['csv', 'json', 'md', 'txt'], description: 'File format to save.' },
+          filename: { type: 'string', description: 'Target filename without path (e.g. "laptop_comparison.csv").' },
+          content: { type: 'string', description: 'Raw string or markdown/JSON content to write to file.' },
+          source: { type: 'string', enum: ['table', 'research_notes', 'raw'], description: 'Optional data source.' },
+        },
+        required: ['format', 'filename'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'eval_page_script',
+      description: 'Safely inspect framework state, Next.js server props, Nuxt data, or JSON-LD schema metadata embedded in the page without scraping noisy DOM.',
+      parameters: {
+        type: 'object',
+        properties: {
+          target: {
+            type: 'string',
+            enum: ['next_data', 'json_ld', 'nuxt_state', 'open_graph', 'custom'],
+            description: 'The framework state target to inspect: "next_data" for window.__NEXT_DATA__, "json_ld" for schema.org schemas, "nuxt_state" for Nuxt/Vue state, "open_graph" for meta tags, or "custom" for specific window path.',
+          },
+          customPath: {
+            type: 'string',
+            description: 'Property path on window when target is "custom" (e.g. "window.__INITIAL_STATE__.catalog").',
+          },
+        },
+        required: ['target'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'scratchpad_write',
+      description: 'Save or update an intermediate variable in the session scratchpad (e.g. auth_token, selected_sku, cart_total, discount_code) so it survives across steps and parallel sub-agents.',
+      parameters: {
+        type: 'object',
+        properties: {
+          key: { type: 'string', description: 'Variable key name (e.g. "selected_laptop_price", "cart_id").' },
+          value: { type: 'string', description: 'Value to store.' },
+          notes: { type: 'string', description: 'Optional human-readable notes about this variable.' },
+        },
+        required: ['key', 'value'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'scratchpad_read',
+      description: 'Read an intermediate variable from the session scratchpad or list all currently stored session variables.',
+      parameters: {
+        type: 'object',
+        properties: {
+          key: { type: 'string', description: 'Optional key to look up. If omitted, lists all stored variables.' },
+        },
       },
     },
   },

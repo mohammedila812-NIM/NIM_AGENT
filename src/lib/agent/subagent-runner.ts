@@ -54,6 +54,9 @@ const SUBAGENT_TOOL_ALLOWLIST = [
   'screenshot',
   'summarize',
   'fill_form',
+  'eval_page_script',
+  'scratchpad_write',
+  'scratchpad_read',
 ];
 
 /**

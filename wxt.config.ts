@@ -20,6 +20,7 @@ export default defineConfig({
       'storage',
       'sidePanel',
       'alarms',
+      'downloads',
     ],
     host_permissions: [
       'https://integrate.api.nvidia.com/*',

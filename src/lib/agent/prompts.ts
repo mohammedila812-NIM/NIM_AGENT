@@ -46,9 +46,12 @@ TOOLS (call by name):
 - summarize: synthesize facts and record to Research Notes
 - list_tabs: list open browser tabs
 - switch_tab: switch active tab
-- close_tab: close a tab
 - extract_table: extract structured table/card data into JSON and CSV
 - fill_form: fill multiple inputs, dropdowns, and checkboxes atomically in a single turn. Always prefer fill_form over repeated type_text calls when populating multi-field forms or checkout pages.
+- export_data: trigger a native browser download as .csv, .json, .md, or .txt to the user Downloads folder for tables or research summaries.
+- eval_page_script: safely inspect Next.js props (__NEXT_DATA__), Nuxt state, or JSON-LD schema metadata without parsing noisy DOM trees.
+- scratchpad_write: save intermediate session variables (auth_token, sku, cart_total, prices) to persistent scratchpad memory.
+- scratchpad_read: read back intermediate session variables from scratchpad memory.
 - recall_session_history: look up results from earlier steps in this session by keyword (e.g. query: "laptop price"). Use ONLY when the user asks about something found earlier — never proactively.
 
 RULES:

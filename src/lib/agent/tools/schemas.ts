@@ -117,6 +117,32 @@ export const FillFormSchema = z.object({
   submitTarget: z.string().optional(),
 });
 
+export const ExportDataSchema = z.object({
+  tool: z.literal('export_data'),
+  format: z.enum(['csv', 'json', 'md', 'txt']),
+  filename: z.string().min(1).max(100),
+  content: z.string().optional(),
+  source: z.enum(['table', 'research_notes', 'raw']).optional(),
+});
+
+export const EvalPageScriptSchema = z.object({
+  tool: z.literal('eval_page_script'),
+  target: z.enum(['next_data', 'json_ld', 'nuxt_state', 'open_graph', 'custom']),
+  customPath: z.string().max(100).optional(),
+});
+
+export const ScratchpadWriteSchema = z.object({
+  tool: z.literal('scratchpad_write'),
+  key: z.string().min(1).max(50),
+  value: z.string().max(4000),
+  notes: z.string().optional(),
+});
+
+export const ScratchpadReadSchema = z.object({
+  tool: z.literal('scratchpad_read'),
+  key: z.string().optional(),
+});
+
 export const ToolCallSchema = z.discriminatedUnion('tool', [
   ClickSchema,
   TypeSchema,
@@ -136,6 +162,10 @@ export const ToolCallSchema = z.discriminatedUnion('tool', [
   ParallelResearchSchema,
   RecallSessionSchema,
   FillFormSchema,
+  ExportDataSchema,
+  EvalPageScriptSchema,
+  ScratchpadWriteSchema,
+  ScratchpadReadSchema,
 ]);
 
 export type ValidatedToolCall = z.infer<typeof ToolCallSchema>;

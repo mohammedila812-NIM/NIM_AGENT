@@ -4,6 +4,7 @@ import {
   Globe, Search, FileText, MousePointer, Keyboard,
   ArrowUpDown, Camera, Loader2, ChevronDown, ChevronRight,
   Zap, Layers, Table, ExternalLink, Sparkles, List, Clock, History, CheckSquare,
+  Download, Code2, Bookmark,
 } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -57,6 +58,10 @@ const TOOL_META: Record<string, { icon: React.FC<{ className?: string }>; label:
   parallel_research:      { icon: Sparkles,      label: 'Parallel Sub-Agents', color: 'text-amber-400' },
   recall_session_history: { icon: History,       label: 'Session Recall', color: 'text-purple-400' },
   fill_form:              { icon: CheckSquare,   label: 'Fill Form', color: 'text-emerald-400' },
+  export_data:            { icon: Download,      label: 'Export File', color: 'text-cyan-400' },
+  eval_page_script:       { icon: Code2,         label: 'Inspect State', color: 'text-indigo-400' },
+  scratchpad_write:       { icon: Bookmark,      label: 'Scratchpad Write', color: 'text-yellow-400' },
+  scratchpad_read:        { icon: Bookmark,      label: 'Scratchpad Read', color: 'text-yellow-300' },
 };
 
 // ── Step summary: first meaningful arg value ───────────────────────────────────
@@ -66,6 +71,10 @@ function stepSummary(tool: string, args?: Record<string, unknown>): string {
   if (tool === 'parallel_research' && Array.isArray(args.tasks)) return `${args.tasks.length} parallel background tabs`;
   if (tool === 'recall_session_history') return args.query ? `query: "${String(args.query)}"` : `last ${String(args.last_n ?? 5)} turns`;
   if (tool === 'fill_form' && Array.isArray(args.fields)) return `${args.fields.length} form fields`;
+  if (tool === 'export_data' && args.filename) return `${String(args.filename)} (${String(args.format ?? 'csv')})`;
+  if (tool === 'eval_page_script' && args.target) return `target: ${String(args.target)}`;
+  if (tool === 'scratchpad_write' && args.key) return `var: "${String(args.key)}" = "${String(args.value ?? '')}"`;
+  if (tool === 'scratchpad_read') return args.key ? `var: "${String(args.key)}"` : 'all variables';
   if (tool === 'navigate_to' && args.url) return String(args.url);
   if (tool === 'web_search' && args.query) return `"${String(args.query)}"`;
   if (tool === 'click_element' && args.target) return String(args.target);

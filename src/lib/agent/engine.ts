@@ -27,6 +27,9 @@ import { DESTRUCTIVE_KEYWORDS } from './security-patterns';
 import { writeTurn, clearSession, recordTaskStart, recordTaskCompletion } from './session-store';
 import { recallSessionHistory } from './tools/session-recall';
 import { executeBatchFormFill, formatBatchFillResult } from './tools/form-filler';
+import { exportDataToFile, formatExportResult } from './tools/data-exporter';
+import { inspectPageState, formatInspectedState } from './tools/state-inspector';
+import { executeScratchpadWrite, executeScratchpadRead } from './scratchpad';
 
 export interface AgentRunCallbacks {
   onStep?: (stepNumber: number, reasoning: string, toolCall?: ValidatedToolCall, result?: string) => void;
@@ -1617,6 +1620,38 @@ export class AgentEngine {
         const report = formatBatchFillResult(fillResult);
         const freshSnapshot = await this.autoSnapshotAfterAction(tabId);
         return `${report}${freshSnapshot}`;
+      }
+
+      case 'export_data': {
+        const exportResult = await exportDataToFile({
+          format: tool.format,
+          filename: tool.filename,
+          content: tool.content,
+          source: tool.source,
+        });
+        return formatExportResult(exportResult);
+      }
+
+      case 'eval_page_script': {
+        const tabId = await this.resolveTabId();
+        const inspected = await inspectPageState(
+          tabId,
+          tool.target,
+          tool.customPath,
+        );
+        return formatInspectedState(inspected);
+      }
+
+      case 'scratchpad_write': {
+        return await executeScratchpadWrite(
+          tool.key,
+          tool.value,
+          tool.notes,
+        );
+      }
+
+      case 'scratchpad_read': {
+        return await executeScratchpadRead(tool.key);
       }
     }
   }

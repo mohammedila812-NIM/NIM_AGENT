@@ -18,7 +18,11 @@ export type AgentActionType =
   | 'extract_table'
   | 'parallel_research'
   | 'recall_session_history'
-  | 'fill_form';
+  | 'fill_form'
+  | 'export_data'
+  | 'eval_page_script'
+  | 'scratchpad_write'
+  | 'scratchpad_read';
 
 export interface AgentAction {
   type: AgentActionType;
