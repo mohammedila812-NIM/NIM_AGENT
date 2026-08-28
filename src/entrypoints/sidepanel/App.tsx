@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MessageSquare, ListTodo, BookOpen, Activity, ShieldCheck, Settings } from 'lucide-react';
+import { MessageSquare, ListTodo, BookOpen, Activity, ShieldCheck, Settings, Bell } from 'lucide-react';
 import { ChatPanel, type ChatMessageItem, type AgentStep } from './components/ChatPanel';
 import { TaskPanel } from './components/TaskPanel';
 import { ResearchPanel } from './components/ResearchPanel';
 import { TracePanel } from './components/TracePanel';
 import { SecurityLog } from './components/SecurityLog';
 import { SettingsPanel } from './components/SettingsPanel';
+import { WatchPanel } from './components/WatchPanel';
 import { getCurrentCostState } from '../../lib/agent/cost-guard';
 
-type Tab = 'chat' | 'tasks' | 'research' | 'trace' | 'security' | 'settings';
+type Tab = 'chat' | 'trace' | 'tasks' | 'monitors' | 'research' | 'security' | 'settings';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('chat');
@@ -274,6 +275,13 @@ export default function App() {
             <ListTodo className="w-3.5 h-3.5" />
           </button>
           <button
+            onClick={() => setActiveTab('monitors')}
+            className={`p-1.5 rounded-md transition ${activeTab === 'monitors' ? 'bg-slate-800 text-brand-400' : 'text-slate-400 hover:text-slate-200'}`}
+            title="Scheduled Monitors"
+          >
+            <Bell className="w-3.5 h-3.5" />
+          </button>
+          <button
             onClick={() => setActiveTab('research')}
             className={`p-1.5 rounded-md transition ${activeTab === 'research' ? 'bg-slate-800 text-brand-400' : 'text-slate-400 hover:text-slate-200'}`}
             title="Research Notes"
@@ -320,6 +328,7 @@ export default function App() {
           />
         )}
         {activeTab === 'tasks' && <TaskPanel onRunMacro={(m) => handleStartTask(m, false)} />}
+        {activeTab === 'monitors' && <WatchPanel />}
         {activeTab === 'research' && <ResearchPanel />}
         {activeTab === 'security' && <SecurityLog />}
         {activeTab === 'settings' && <SettingsPanel />}

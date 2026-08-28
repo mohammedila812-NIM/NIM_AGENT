@@ -4,7 +4,7 @@ import {
   Globe, Search, FileText, MousePointer, Keyboard,
   ArrowUpDown, Camera, Loader2, ChevronDown, ChevronRight,
   Zap, Layers, Table, ExternalLink, Sparkles, List, Clock, History, CheckSquare,
-  Download, Code2, Bookmark,
+  Download, Code2, Bookmark, Bell,
 } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -62,6 +62,9 @@ const TOOL_META: Record<string, { icon: React.FC<{ className?: string }>; label:
   eval_page_script:       { icon: Code2,         label: 'Inspect State', color: 'text-indigo-400' },
   scratchpad_write:       { icon: Bookmark,      label: 'Scratchpad Write', color: 'text-yellow-400' },
   scratchpad_read:        { icon: Bookmark,      label: 'Scratchpad Read', color: 'text-yellow-300' },
+  create_watch:           { icon: Bell,          label: 'Schedule Monitor', color: 'text-indigo-400' },
+  list_watches:           { icon: Bell,          label: 'List Monitors', color: 'text-indigo-300' },
+  delete_watch:           { icon: Bell,          label: 'Delete Monitor', color: 'text-rose-400' },
 };
 
 // ── Step summary: first meaningful arg value ───────────────────────────────────
@@ -75,6 +78,8 @@ function stepSummary(tool: string, args?: Record<string, unknown>): string {
   if (tool === 'eval_page_script' && args.target) return `target: ${String(args.target)}`;
   if (tool === 'scratchpad_write' && args.key) return `var: "${String(args.key)}" = "${String(args.value ?? '')}"`;
   if (tool === 'scratchpad_read') return args.key ? `var: "${String(args.key)}"` : 'all variables';
+  if (tool === 'create_watch' && args.name) return `"${String(args.name)}" (${String(args.intervalMinutes ?? 30)}m)`;
+  if (tool === 'delete_watch' && args.watchId) return `id: ${String(args.watchId)}`;
   if (tool === 'navigate_to' && args.url) return String(args.url);
   if (tool === 'web_search' && args.query) return `"${String(args.query)}"`;
   if (tool === 'click_element' && args.target) return String(args.target);

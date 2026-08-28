@@ -30,6 +30,7 @@ import { executeBatchFormFill, formatBatchFillResult } from './tools/form-filler
 import { exportDataToFile, formatExportResult } from './tools/data-exporter';
 import { inspectPageState, formatInspectedState } from './tools/state-inspector';
 import { executeScratchpadWrite, executeScratchpadRead } from './scratchpad';
+import { executeCreateWatch, executeListWatches, executeDeleteWatch } from './tools/watch-tools';
 
 export interface AgentRunCallbacks {
   onStep?: (stepNumber: number, reasoning: string, toolCall?: ValidatedToolCall, result?: string) => void;
@@ -1652,6 +1653,25 @@ export class AgentEngine {
 
       case 'scratchpad_read': {
         return await executeScratchpadRead(tool.key);
+      }
+
+      case 'create_watch': {
+        return await executeCreateWatch({
+          name: tool.name,
+          url: tool.url,
+          type: tool.type,
+          selector: tool.selector,
+          conditionPrompt: tool.conditionPrompt,
+          intervalMinutes: tool.intervalMinutes,
+        });
+      }
+
+      case 'list_watches': {
+        return await executeListWatches();
+      }
+
+      case 'delete_watch': {
+        return await executeDeleteWatch(tool.watchId);
       }
     }
   }

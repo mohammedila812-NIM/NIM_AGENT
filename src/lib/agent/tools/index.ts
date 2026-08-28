@@ -27,6 +27,11 @@ export {
   executeScratchpadWrite,
   executeScratchpadRead,
 } from '../scratchpad';
+export {
+  executeCreateWatch,
+  executeListWatches,
+  executeDeleteWatch,
+} from './watch-tools';
 
 /** Tool declarations for OpenAI/NIM function calling specification */
 export const AGENT_TOOLS: Tool[] = [
@@ -395,6 +400,50 @@ export const AGENT_TOOLS: Tool[] = [
         properties: {
           key: { type: 'string', description: 'Optional key to look up. If omitted, lists all stored variables.' },
         },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_watch',
+      description: 'Schedule a recurring background monitor for a webpage to track price drops, inventory, new posts, or content changes. Sends desktop notifications when triggers fire.',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Descriptive title for this monitor (e.g. "Acer Laptop Price Watch").' },
+          url: { type: 'string', description: 'Absolute URL of the webpage to monitor.' },
+          type: { type: 'string', enum: ['element_text', 'price', 'dom_selector', 'macro', 'llm_condition'], description: 'Type of monitor check (default: "price").' },
+          selector: { type: 'string', description: 'Optional CSS selector for the specific element to watch.' },
+          conditionPrompt: { type: 'string', description: 'Optional semantic condition (e.g. "Alert if price drops below $650" or "In stock").' },
+          intervalMinutes: { type: 'number', description: 'Monitoring interval in minutes (e.g. 15, 30, 60; default 30).' },
+        },
+        required: ['name', 'url'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_watches',
+      description: 'List all currently scheduled page monitors and their background status.',
+      parameters: {
+        type: 'object',
+        properties: {},
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_watch',
+      description: 'Delete a scheduled page monitor and cancel its background alarm.',
+      parameters: {
+        type: 'object',
+        properties: {
+          watchId: { type: 'string', description: 'The unique ID of the watch target to delete.' },
+        },
+        required: ['watchId'],
       },
     },
   },

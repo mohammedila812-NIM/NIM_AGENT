@@ -6,9 +6,11 @@ import { loadProviderKeys, loadWorkerConfig } from '../lib/storage/secure';
 import { getPreset } from '../lib/llm/providers';
 import type { ProviderConfig } from '../lib/llm/types';
 import { isChatModel, type DiscoveredModel } from '../lib/llm/model-registry';
-import { isValidMessage } from '../lib/messaging/protocol';
 import { resetTaskCounters } from '../lib/agent/cost-guard';
 import { saveTask } from '../lib/storage/tasks';
+import { isValidMessage } from '../lib/messaging/protocol';
+import { syncWatchAlarms, loadWatch } from '../lib/storage/watch';
+import { executeWatchCheck } from '../lib/agent/watch-engine';
 
 let activeEngine: AgentEngine | null = null;
 const connectedPorts = new Set<chrome.runtime.Port>();
@@ -53,6 +55,31 @@ export default defineBackground(() => {
 
   // Check for interrupted tasks on worker wake
   void recoverInterruptedTasks();
+
+  // Sync scheduled monitors (Watch Mode alarms)
+  void syncWatchAlarms();
+
+  // Handle scheduled watch alarms
+  chrome.alarms?.onAlarm?.addListener((alarm) => {
+    if (alarm.name.startsWith('watch:')) {
+      const watchId = alarm.name.replace(/^watch:/, '');
+      void executeWatchCheck(watchId);
+    }
+  });
+
+  // Handle desktop alert notification clicks (opens target URL)
+  chrome.notifications?.onClicked?.addListener(async (notifId) => {
+    if (notifId.startsWith('watch-alert-')) {
+      const parts = notifId.split('-');
+      const watchId = parts[2];
+      if (watchId) {
+        const watch = await loadWatch(watchId);
+        if (watch?.url) {
+          chrome.tabs.create({ url: watch.url });
+        }
+      }
+    }
+  });
 
   // Main agent communication listener
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {

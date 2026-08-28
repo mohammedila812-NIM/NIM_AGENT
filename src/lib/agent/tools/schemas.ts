@@ -143,6 +143,25 @@ export const ScratchpadReadSchema = z.object({
   key: z.string().optional(),
 });
 
+export const CreateWatchSchema = z.object({
+  tool: z.literal('create_watch'),
+  name: z.string().min(1).max(100),
+  url: z.string().url(),
+  type: z.enum(['element_text', 'price', 'dom_selector', 'macro', 'llm_condition']).default('price'),
+  selector: z.string().optional(),
+  conditionPrompt: z.string().optional(),
+  intervalMinutes: z.number().int().min(1).max(1440).default(30),
+});
+
+export const ListWatchesSchema = z.object({
+  tool: z.literal('list_watches'),
+});
+
+export const DeleteWatchSchema = z.object({
+  tool: z.literal('delete_watch'),
+  watchId: z.string().min(1),
+});
+
 export const ToolCallSchema = z.discriminatedUnion('tool', [
   ClickSchema,
   TypeSchema,
@@ -166,6 +185,9 @@ export const ToolCallSchema = z.discriminatedUnion('tool', [
   EvalPageScriptSchema,
   ScratchpadWriteSchema,
   ScratchpadReadSchema,
+  CreateWatchSchema,
+  ListWatchesSchema,
+  DeleteWatchSchema,
 ]);
 
 export type ValidatedToolCall = z.infer<typeof ToolCallSchema>;

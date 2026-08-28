@@ -21,6 +21,7 @@ export default defineConfig({
       'sidePanel',
       'alarms',
       'downloads',
+      'notifications',
     ],
     host_permissions: [
       'https://integrate.api.nvidia.com/*',

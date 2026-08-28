@@ -22,7 +22,10 @@ export type AgentActionType =
   | 'export_data'
   | 'eval_page_script'
   | 'scratchpad_write'
-  | 'scratchpad_read';
+  | 'scratchpad_read'
+  | 'create_watch'
+  | 'list_watches'
+  | 'delete_watch';
 
 export interface AgentAction {
   type: AgentActionType;
