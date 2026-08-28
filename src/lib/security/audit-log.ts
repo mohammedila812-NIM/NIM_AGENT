@@ -5,7 +5,9 @@ export type SecurityEvent =
   | { type: 'sender_rejected'; senderId: string; portName?: string }
   | { type: 'out_of_scope_domain'; domain: string; taskId: string }
   | { type: 'tool_validation_error'; rawCall: unknown; errors: string }
-  | { type: 'cost_limit_hit'; limitType: 'per_task' | 'per_day'; detail: string };
+  | { type: 'cost_limit_hit'; limitType: 'per_task' | 'per_day'; detail: string }
+  | { type: 'watch_triggered_macro'; watchId: string; macroId: string; success: boolean; detail: string }
+  | { type: 'macro_executed'; macroId: string; macroName: string; stepCount: number; success: boolean; error?: string };
 
 export interface SecurityLogEntry {
   id: string;

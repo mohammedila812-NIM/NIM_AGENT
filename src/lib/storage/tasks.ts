@@ -9,11 +9,18 @@ export interface StoredTask {
   result?: string;
 }
 
+export interface MacroAction {
+  tool: string;
+  args?: Record<string, unknown>;
+  targetLabel?: string;      // Semantic element label (e.g. "Add to Cart", "Search")
+  reasoning?: string;
+}
+
 export interface Macro {
   macroId: string;
   name: string;
   instruction: string;
-  actionSequence: object[]; // serialized actions
+  actionSequence: MacroAction[];
   createdAt: number;
   runCount: number;
 }
@@ -86,6 +93,11 @@ export async function saveMacro(macro: Macro): Promise<void> {
     const oldest = macros.slice(MAX_MACROS);
     await chrome.storage.local.remove(oldest.map((m) => `macro:${m.macroId}`));
   }
+}
+
+export async function loadMacro(macroId: string): Promise<Macro | null> {
+  const result = await chrome.storage.local.get(`macro:${macroId}`);
+  return (result[`macro:${macroId}`] as Macro | undefined) ?? null;
 }
 
 export async function listMacros(): Promise<Macro[]> {

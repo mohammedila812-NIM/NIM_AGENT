@@ -6,6 +6,7 @@ import {
   Zap, Layers, Table, ExternalLink, Sparkles, List, Clock, History, CheckSquare,
   Download, Code2, Bookmark, Bell,
 } from 'lucide-react';
+import { MarkdownMessage } from './MarkdownMessage';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -283,7 +284,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                     <span>Execution Notice</span>
                   </div>
                 )}
-                <p className="whitespace-pre-wrap">{m.text}</p>
+                {m.sender === 'user' ? (
+                  <p className="whitespace-pre-wrap">{m.text}</p>
+                ) : (
+                  <MarkdownMessage text={m.text} />
+                )}
               </div>
             </div>
           ))}

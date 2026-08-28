@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Bell, Play, Pause, Trash2, RefreshCw, Plus, ExternalLink,
-  AlertCircle, CheckCircle2, Clock, Globe, ShieldAlert, X,
+  AlertCircle, CheckCircle2, Clock, Globe, ShieldAlert, X, Zap,
 } from 'lucide-react';
 import {
   listWatches,
@@ -11,10 +11,12 @@ import {
   type WatchTarget,
   type WatchType,
 } from '../../../lib/storage/watch';
+import { listMacros, type Macro } from '../../../lib/storage/tasks';
 import { executeWatchCheck } from '../../../lib/agent/watch-engine';
 
 export const WatchPanel: React.FC = () => {
   const [watches, setWatches] = useState<WatchTarget[]>([]);
+  const [macros, setMacros] = useState<Macro[]>([]);
   const [loading, setLoading] = useState(true);
   const [checkingId, setCheckingId] = useState<string | null>(null);
   const [statusToast, setStatusToast] = useState<{ id: string; message: string; success: boolean } | null>(null);
@@ -27,12 +29,14 @@ export const WatchPanel: React.FC = () => {
   const [selector, setSelector] = useState('');
   const [conditionPrompt, setConditionPrompt] = useState('');
   const [intervalMinutes, setIntervalMinutes] = useState(30);
+  const [selectedMacroId, setSelectedMacroId] = useState('');
 
   const loadAll = async () => {
     setLoading(true);
     try {
-      const items = await listWatches();
+      const [items, macroList] = await Promise.all([listWatches(), listMacros()]);
       setWatches(items);
+      setMacros(macroList);
     } catch {
       // ignore
     } finally {
@@ -92,6 +96,7 @@ export const WatchPanel: React.FC = () => {
       type,
       selector: selector.trim() || undefined,
       conditionPrompt: conditionPrompt.trim() || undefined,
+      macroId: selectedMacroId || undefined,
       intervalMinutes: Math.max(1, Number(intervalMinutes) || 30),
       status: 'active',
       alertCount: 0,
@@ -106,6 +111,7 @@ export const WatchPanel: React.FC = () => {
     setUrl('');
     setSelector('');
     setConditionPrompt('');
+    setSelectedMacroId('');
     setIntervalMinutes(30);
     await loadAll();
   };
@@ -237,6 +243,16 @@ export const WatchPanel: React.FC = () => {
                 </div>
               )}
 
+              {/* Attached Macro Info */}
+              {w.macroId && (
+                <div className="mt-2 text-[10px] text-amber-300 bg-amber-500/10 px-2 py-1 rounded-lg border border-amber-500/20 flex items-center gap-1.5 w-fit">
+                  <Zap className="w-3 h-3 text-amber-400" />
+                  <span>
+                    Trigger Macro: <strong className="text-amber-200">{macros.find((m) => m.macroId === w.macroId)?.name || 'Attached Macro'}</strong>
+                  </span>
+                </div>
+              )}
+
               {/* Snapshot Info */}
               {w.lastSnapshot && (
                 <div className="mt-2 text-[10px] text-slate-400 bg-slate-950/40 px-2 py-1.5 rounded border border-slate-800/40">
@@ -361,6 +377,25 @@ export const WatchPanel: React.FC = () => {
                   onChange={(e) => setConditionPrompt(e.target.value)}
                   className="w-full text-xs px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-100 placeholder-slate-600 focus:outline-none focus:border-indigo-500"
                 />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-300 mb-1 flex items-center gap-1">
+                  <Zap className="w-3 h-3 text-amber-400" />
+                  <span>Trigger Saved Macro on Match (Optional)</span>
+                </label>
+                <select
+                  value={selectedMacroId}
+                  onChange={(e) => setSelectedMacroId(e.target.value)}
+                  className="w-full text-xs px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-100 focus:outline-none focus:border-indigo-500"
+                >
+                  <option value="">None (Desktop notification only)</option>
+                  {macros.map((m) => (
+                    <option key={m.macroId} value={m.macroId}>
+                      ⚡ {m.name} ({m.actionSequence?.length || 0} steps)
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">

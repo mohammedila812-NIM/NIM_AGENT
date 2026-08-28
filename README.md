@@ -14,10 +14,15 @@ NIM Agent is a Manifest V3 browser extension for AI-assisted web research, brows
 
 ## What's new
 
-- **Session-history recall:** The agent can retrieve findings, tool results, and completed-task answers from earlier in the current browser session when a follow-up question refers to them.
-- **Batch form filling:** The agent can populate up to 25 text fields, dropdowns, checkboxes, radio buttons, and editable fields in one action, with optional form submission.
-- **Safer form automation:** Password and payment-related fields are automatically skipped during batch filling, while the result reports filled, skipped, and failed fields clearly.
-- **Improved agent activity display:** Session recall and form-filling actions now appear with dedicated labels and icons in the side-panel activity feed.
+### v0.4.0
+
+- **Deterministic macro replay:** Saved task macros can now replay their recorded browser actions directly, avoiding a new planning pass and normally using zero model tokens.
+- **Self-healing macro targets:** When a saved selector has drifted, replay first tries semantic element matching and can use a budget-checked model lookup as a fallback.
+- **Watch-triggered automation:** A monitor can optionally run one of your saved macros when its condition matches, with the outcome included in the notification and security log.
+- **Quota-aware retries:** Provider requests now respect `Retry-After` and provider quota delays, retry transient failures up to five times, and show auto-resume status in the agent UI.
+- **Better responses and navigation:** Assistant messages render headings, lists, code blocks, and tables; navigation now waits for completion and SPA settling before the next action.
+
+See [CHANGELOG.md](CHANGELOG.md) for the complete release notes.
 
 ## Quick start
 

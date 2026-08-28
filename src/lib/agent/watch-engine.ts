@@ -1,4 +1,6 @@
 import { loadWatch, saveWatch, type WatchTarget } from '../storage/watch';
+import { loadMacro } from '../storage/tasks';
+import { executeMacro } from './macro-executor';
 import { checkBudget, recordUsage } from './cost-guard';
 import { appendSecurityEvent } from '../security/audit-log';
 import { loadWorkerConfig } from '../storage/secure';
@@ -81,7 +83,8 @@ export async function executeWatchCheck(
     // 3. Extract target element text or page body
     const extractionResults = await chrome.scripting.executeScript({
       target: { tabId: createdTabId },
-      func: (selector?: string) => {
+      func: (rawSelector: string) => {
+        const selector = rawSelector || undefined;
         if (selector) {
           try {
             const el = document.querySelector(selector);
@@ -94,7 +97,7 @@ export async function executeWatchCheck(
         // Fallback: first 2000 chars of body text
         return ((document.body as HTMLElement).innerText ?? '').slice(0, 2000).replace(/\s+/g, ' ');
       },
-      args: [watch.selector],
+      args: [watch.selector ?? ''],
     });
 
     const currentText = ((extractionResults[0]?.result as string | undefined) ?? '').trim();
@@ -170,7 +173,35 @@ export async function executeWatchCheck(
       summary = changed ? 'Content changed on watched page.' : 'No change detected.';
     }
 
-    // 5. Fire desktop notification if changed
+    // 5. If changed and macro attached, execute macro deterministically
+    let macroSummary = '';
+    if (changed && watch.macroId && createdTabId) {
+      try {
+        const attachedMacro = await loadMacro(watch.macroId);
+        if (attachedMacro) {
+          const macroRes = await executeMacro(attachedMacro, createdTabId);
+          if (macroRes.success) {
+            macroSummary = ` | Executed macro "${attachedMacro.name}" (${macroRes.stepsCompleted}/${macroRes.totalSteps} steps)`;
+          } else {
+            macroSummary = ` | Macro "${attachedMacro.name}" failed: ${macroRes.error || 'Unknown error'}`;
+          }
+
+          await appendSecurityEvent({
+            type: 'watch_triggered_macro',
+            watchId: watch.watchId,
+            macroId: watch.macroId,
+            success: macroRes.success,
+            detail: macroSummary,
+          });
+        }
+      } catch (mErr: unknown) {
+        macroSummary = ` | Macro error: ${mErr instanceof Error ? mErr.message : String(mErr)}`;
+      }
+    }
+
+    const fullAlertMessage = `${summary}${macroSummary}`.trim();
+
+    // 6. Fire desktop notification if changed
     if (changed && watch.notificationOnMatch !== false) {
       if (typeof chrome !== 'undefined' && chrome.notifications) {
         const notifId = `watch-alert-${watch.watchId}-${Date.now()}`;
@@ -179,18 +210,17 @@ export async function executeWatchCheck(
             type: 'basic',
             iconUrl: chrome.runtime.getURL('icon/128.png'),
             title: `⚡ NIM Monitor: ${watch.name}`,
-            message: summary || `Change detected on ${watch.name}`,
+            message: fullAlertMessage || `Change detected on ${watch.name}`,
             priority: 2,
             requireInteraction: true,
           });
         } catch { /* notifications API error — silently ignore */ }
       }
 
-      // Audit log — use action_warned type (closest to a monitoring event in existing schema)
       await appendSecurityEvent({
         type: 'action_warned',
         action: `watch_alert:${watch.watchId}`,
-        reason: summary,
+        reason: fullAlertMessage,
         userApproved: false,
       });
     }

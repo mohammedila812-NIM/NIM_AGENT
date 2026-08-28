@@ -39,7 +39,14 @@ export const TracePanel: React.FC<TracePanelProps> = ({
       macroId: crypto.randomUUID(),
       name: macroName.trim(),
       instruction,
-      actionSequence: traceSteps.filter((s) => s.toolName).map((s) => ({ tool: s.toolName, args: s.toolArgs })),
+      actionSequence: traceSteps
+        .filter((s) => s.toolName)
+        .map((s) => ({
+          tool: s.toolName!,
+          args: s.toolArgs,
+          targetLabel: (s.toolArgs?.target as string) || (s.reasoning ? s.reasoning.slice(0, 100) : undefined),
+          reasoning: s.reasoning,
+        })),
       createdAt: Date.now(),
       runCount: 0,
     });

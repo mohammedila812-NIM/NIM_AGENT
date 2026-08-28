@@ -5,6 +5,9 @@ node_modules/
 .output/
 .wxt/
 
+# Website source is intentionally excluded from extension releases
+website/
+
 # Test artefacts
 coverage/
 playwright-report/

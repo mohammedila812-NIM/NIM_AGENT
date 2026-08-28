@@ -14,7 +14,8 @@ export async function extractTableFromPage(tabId: number, selector?: string): Pr
   try {
     const results = await chrome.scripting.executeScript({
       target: { tabId },
-      func: (tableSelector?: string) => {
+      func: (rawSelector: string) => {
+        const tableSelector = rawSelector || undefined;
         // Find table or table-like elements
         const targetTable = tableSelector
           ? document.querySelector(tableSelector)
@@ -65,7 +66,7 @@ export async function extractTableFromPage(tabId: number, selector?: string): Pr
           rows: rows.slice(0, 100), // Cap at 100 rows
         };
       },
-      args: [selector],
+      args: [selector ?? ''],
     });
 
     const data = results[0]?.result;

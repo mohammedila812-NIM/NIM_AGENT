@@ -222,29 +222,44 @@ export class AgentEngine {
         ];
       }
 
+      const retryOptions = {
+        onRetry: (attempt: number, maxAttempts: number, delayMs: number, reason: string) => {
+          const sec = Math.round(delayMs / 1000);
+          this.callbacks.onStatusChange?.('running', `⏳ ${reason}. Pausing for ${sec}s to respect quota, then auto-resuming... (${attempt}/${maxAttempts})`);
+        },
+      };
+
       try {
-        response = await chatCompletion(this.config.providerConfig, {
-          model: this.config.model.id,
-          messages: callTranscript,
-          tools: shouldUseTools ? AGENT_TOOLS : undefined,
-          tool_choice: shouldUseTools ? 'auto' : undefined,
-          temperature: isChatMode ? 0.7 : 0.2,
-          max_tokens: isChatMode ? 400 : 2500,
-        });
+        response = await chatCompletion(
+          this.config.providerConfig,
+          {
+            model: this.config.model.id,
+            messages: callTranscript,
+            tools: shouldUseTools ? AGENT_TOOLS : undefined,
+            tool_choice: shouldUseTools ? 'auto' : undefined,
+            temperature: isChatMode ? 0.7 : 0.2,
+            max_tokens: isChatMode ? 400 : 2500,
+          },
+          retryOptions,
+        );
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
 
         // Auto-fallback: If provider returns "does not support tools", retry without tools
         if (shouldUseTools && /does not support tools|tools not supported|function.*calling/i.test(msg)) {
           this.config.model.supportsTools = false;
-          response = await chatCompletion(this.config.providerConfig, {
-            model: this.config.model.id,
-            messages: callTranscript,
-            tools: undefined,
-            tool_choice: undefined,
-            temperature: 0.2,
-            max_tokens: 2500,
-          });
+          response = await chatCompletion(
+            this.config.providerConfig,
+            {
+              model: this.config.model.id,
+              messages: callTranscript,
+              tools: undefined,
+              tool_choice: undefined,
+              temperature: 0.2,
+              max_tokens: 2500,
+            },
+            retryOptions,
+          );
         } else {
           this.callbacks.onStatusChange?.('error', msg);
           throw err;
@@ -788,6 +803,7 @@ export class AgentEngine {
         await fxNavigate(currentTabId);
 
         const tabId = await navigateTo(tool.url, tool.newTab);
+        this.resolvedTabId = tabId;
         try {
           const u = new URL(tool.url);
           if (!this.scopeDomains.includes(u.hostname)) {
@@ -799,7 +815,7 @@ export class AgentEngine {
 
         // Wait for page settlement
         await waitForDOMSettle(tabId, 1000);
-        return `Navigated successfully to: ${tool.url}`;
+        return `Navigated successfully to: ${tool.url} (Active Tab ID: ${tabId}). The page is now loaded and ready. Next step: read_page or interact with the elements.`;
       }
 
       case 'screenshot': {
