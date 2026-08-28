@@ -53,6 +53,7 @@ const SUBAGENT_TOOL_ALLOWLIST = [
   'extract_table',
   'screenshot',
   'summarize',
+  'fill_form',
 ];
 
 /**

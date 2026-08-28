@@ -3,7 +3,7 @@ import {
   Send, Square, AlertCircle, ShieldAlert, Check, X,
   Globe, Search, FileText, MousePointer, Keyboard,
   ArrowUpDown, Camera, Loader2, ChevronDown, ChevronRight,
-  Zap, Layers, Table, ExternalLink, Sparkles, List, Clock,
+  Zap, Layers, Table, ExternalLink, Sparkles, List, Clock, History, CheckSquare,
 } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -53,8 +53,10 @@ const TOOL_META: Record<string, { icon: React.FC<{ className?: string }>; label:
   list_tabs:         { icon: Layers,        label: 'List Tabs',     color: 'text-indigo-400' },
   switch_tab:        { icon: ExternalLink,  label: 'Switch Tab',    color: 'text-cyan-400' },
   close_tab:         { icon: X,             label: 'Close Tab',     color: 'text-rose-400' },
-  extract_table:     { icon: Table,         label: 'Extract Table', color: 'text-emerald-400' },
-  parallel_research: { icon: Sparkles,      label: 'Parallel Sub-Agents', color: 'text-amber-400' },
+  extract_table:          { icon: Table,         label: 'Extract Table', color: 'text-emerald-400' },
+  parallel_research:      { icon: Sparkles,      label: 'Parallel Sub-Agents', color: 'text-amber-400' },
+  recall_session_history: { icon: History,       label: 'Session Recall', color: 'text-purple-400' },
+  fill_form:              { icon: CheckSquare,   label: 'Fill Form', color: 'text-emerald-400' },
 };
 
 // ── Step summary: first meaningful arg value ───────────────────────────────────
@@ -62,6 +64,8 @@ const TOOL_META: Record<string, { icon: React.FC<{ className?: string }>; label:
 function stepSummary(tool: string, args?: Record<string, unknown>): string {
   if (!args) return '';
   if (tool === 'parallel_research' && Array.isArray(args.tasks)) return `${args.tasks.length} parallel background tabs`;
+  if (tool === 'recall_session_history') return args.query ? `query: "${String(args.query)}"` : `last ${String(args.last_n ?? 5)} turns`;
+  if (tool === 'fill_form' && Array.isArray(args.fields)) return `${args.fields.length} form fields`;
   if (tool === 'navigate_to' && args.url) return String(args.url);
   if (tool === 'web_search' && args.query) return `"${String(args.query)}"`;
   if (tool === 'click_element' && args.target) return String(args.target);

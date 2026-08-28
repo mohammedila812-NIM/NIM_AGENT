@@ -24,6 +24,9 @@ import { waitForDOMSettle, waitForSelector } from './tools/wait-utils';
 import { shouldUseFallbackVision } from './tools/interaction-policy';
 import { fxClick, fxType, fxScroll, fxScan, fxNavigate, fxFlash } from './page-effects';
 import { DESTRUCTIVE_KEYWORDS } from './security-patterns';
+import { writeTurn, clearSession, recordTaskStart, recordTaskCompletion } from './session-store';
+import { recallSessionHistory } from './tools/session-recall';
+import { executeBatchFormFill, formatBatchFillResult } from './tools/form-filler';
 
 export interface AgentRunCallbacks {
   onStep?: (stepNumber: number, reasoning: string, toolCall?: ValidatedToolCall, result?: string) => void;
@@ -111,6 +114,12 @@ export class AgentEngine {
         ];
 
     const actionLog = initialCheckpoint ? initialCheckpoint.actionLog : [];
+
+    // Clear session store for fresh tasks (not resumed checkpoints)
+    if (!initialCheckpoint) {
+      void clearSession(this.taskId);
+      void recordTaskStart(this.taskId, this.instruction);
+    }
 
     this.callbacks.onStatusChange?.('running');
 
@@ -371,7 +380,9 @@ export class AgentEngine {
         this.callbacks.onStep?.(currentStep, stepReasoning || cleaned);
         this.callbacks.onStatusChange?.('done');
         await deleteCheckpoint(this.taskId);
-        return cleaned || textContent;
+        const finalAnswer = cleaned || textContent;
+        void recordTaskCompletion(this.taskId, this.instruction, finalAnswer);
+        return finalAnswer;
       }
 
       // 5. Process tool calls
@@ -462,6 +473,16 @@ export class AgentEngine {
           this.failedDomAttempts = 0; // Reset failure counter on success
           actionLog.push({ action: { type: validTool.tool, ...rawArgs }, timestamp: Date.now() });
           this.callbacks.onStep?.(currentStep, textContent, validTool, toolResultStr);
+
+          // Write to session store for on-demand recall (skip recall tool itself to avoid recursion)
+          if (validTool.tool !== 'recall_session_history') {
+            void writeTurn(this.taskId, {
+              step: currentStep,
+              tool: validTool.tool,
+              targetUrl: (validTool as { url?: string }).url ?? undefined,
+              content: toolResultStr,
+            });
+          }
         } catch (err: unknown) {
           this.failedDomAttempts++;
           if (err instanceof InjectionDetectedError) {
@@ -551,13 +572,18 @@ export class AgentEngine {
           this.config.providerConfig,
           this.config.quarantineModelId ?? this.config.model.id,
         );
+        void recordTaskCompletion(this.taskId, this.instruction, synthesized);
         return synthesized;
       } catch {
-        return `I've finished researching "${this.instruction}". Check the browser tabs for details.`;
+        const fallback = `I've finished researching "${this.instruction}". Check the browser tabs for details.`;
+        void recordTaskCompletion(this.taskId, this.instruction, fallback);
+        return fallback;
       }
     }
 
-    return 'Research task completed. No additional data found.';
+    const noData = 'Research task completed. No additional data found.';
+    void recordTaskCompletion(this.taskId, this.instruction, noData);
+    return noData;
   }
 
   /**
@@ -1569,6 +1595,28 @@ export class AgentEngine {
         }
 
         return finalReport;
+      }
+
+      case 'recall_session_history': {
+        return await recallSessionHistory(
+          this.taskId,
+          tool.query,
+          tool.last_n,
+        );
+      }
+
+      case 'fill_form': {
+        const tabId = await this.resolveTabId();
+        await fxScan(tabId);
+        const fillResult = await executeBatchFormFill(
+          tabId,
+          tool.fields,
+          tool.submitAfter,
+          tool.submitTarget,
+        );
+        const report = formatBatchFillResult(fillResult);
+        const freshSnapshot = await this.autoSnapshotAfterAction(tabId);
+        return `${report}${freshSnapshot}`;
       }
     }
   }

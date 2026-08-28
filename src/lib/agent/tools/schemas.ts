@@ -98,6 +98,25 @@ export const ParallelResearchSchema = z.object({
   ).min(1).max(5),
 });
 
+export const RecallSessionSchema = z.object({
+  tool: z.literal('recall_session_history'),
+  query: z.string().max(200).optional(),
+  last_n: z.number().int().min(1).max(20).optional(),
+});
+
+export const FillFormSchema = z.object({
+  tool: z.literal('fill_form'),
+  fields: z.array(
+    z.object({
+      target: z.string().min(1, 'Target numeric ID, selector, or name required'),
+      value: z.string(),
+      type: z.enum(['text', 'select', 'checkbox', 'radio']).optional(),
+    }),
+  ).min(1, 'At least one field is required').max(25, 'Maximum 25 fields per batch'),
+  submitAfter: z.boolean().optional(),
+  submitTarget: z.string().optional(),
+});
+
 export const ToolCallSchema = z.discriminatedUnion('tool', [
   ClickSchema,
   TypeSchema,
@@ -115,6 +134,8 @@ export const ToolCallSchema = z.discriminatedUnion('tool', [
   CloseTabSchema,
   ExtractTableSchema,
   ParallelResearchSchema,
+  RecallSessionSchema,
+  FillFormSchema,
 ]);
 
 export type ValidatedToolCall = z.infer<typeof ToolCallSchema>;

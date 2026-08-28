@@ -15,6 +15,9 @@ export { validateToolCall, type ValidatedToolCall } from './schemas';
 export { shouldUseFallbackVision, MIN_DOM_CHARS } from './interaction-policy';
 export { getCachedSelector, cacheSelector } from './selector-cache';
 
+export { recallSessionHistory } from './session-recall';
+export { executeBatchFormFill, formatBatchFillResult } from './form-filler';
+
 /** Tool declarations for OpenAI/NIM function calling specification */
 export const AGENT_TOOLS: Tool[] = [
   {
@@ -260,6 +263,60 @@ export const AGENT_TOOLS: Tool[] = [
           },
         },
         required: ['tasks'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'recall_session_history',
+      description: 'Look up previous steps and results from this session by keyword query or retrieve the last N turns. Use ONLY when the user references something from earlier in the task (e.g. "what was the price you found?", "compare with the first result", "what did you find on that site?"). Do NOT use proactively — only when follow-up recall is needed.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: 'Free-text keyword to search for in past session turns (e.g. "laptop price amazon", "cheapest result", "login error").',
+          },
+          last_n: {
+            type: 'number',
+            description: 'Number of most recent turns to retrieve (1–20). Used when no specific query is given.',
+          },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'fill_form',
+      description: 'Fill multiple form inputs, dropdowns, checkboxes, or radios atomically in a single turn. Extremely fast and efficient for checkout, login, search filters, and registration forms. Can optionally submit the form once filled.',
+      parameters: {
+        type: 'object',
+        properties: {
+          fields: {
+            type: 'array',
+            description: 'List of fields to populate with their target numeric index / selector and values.',
+            items: {
+              type: 'object',
+              properties: {
+                target: { type: 'string', description: 'Numeric index (e.g. "1"), CSS selector, name, or label of the form field.' },
+                value: { type: 'string', description: 'The exact value to enter, select, or set (use "true"/"false" for checkboxes).' },
+                type: { type: 'string', enum: ['text', 'select', 'checkbox', 'radio'], description: 'Optional field type hint.' },
+              },
+              required: ['target', 'value'],
+            },
+          },
+          submitAfter: {
+            type: 'boolean',
+            description: 'If true, automatically clicks the submit button or triggers form submission after filling all fields.',
+          },
+          submitTarget: {
+            type: 'string',
+            description: 'Optional numeric index or selector of the specific submit button to click.',
+          },
+        },
+        required: ['fields'],
       },
     },
   },

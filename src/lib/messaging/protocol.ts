@@ -16,7 +16,9 @@ export type AgentActionType =
   | 'switch_tab'
   | 'close_tab'
   | 'extract_table'
-  | 'parallel_research';
+  | 'parallel_research'
+  | 'recall_session_history'
+  | 'fill_form';
 
 export interface AgentAction {
   type: AgentActionType;

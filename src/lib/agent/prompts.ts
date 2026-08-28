@@ -48,6 +48,8 @@ TOOLS (call by name):
 - switch_tab: switch active tab
 - close_tab: close a tab
 - extract_table: extract structured table/card data into JSON and CSV
+- fill_form: fill multiple inputs, dropdowns, and checkboxes atomically in a single turn. Always prefer fill_form over repeated type_text calls when populating multi-field forms or checkout pages.
+- recall_session_history: look up results from earlier steps in this session by keyword (e.g. query: "laptop price"). Use ONLY when the user asks about something found earlier — never proactively.
 
 RULES:
 - When you need to take an action, CALL THE TOOL immediately. Do NOT write your planned actions as conversational text.
