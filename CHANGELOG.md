@@ -18,7 +18,4 @@ All notable changes to NIM Agent are documented here.
 - Navigation tracks the newly opened tab, waits for document completion, and allows time for SPA hydration before the next tool action.
 - Macro traces retain target labels and reasoning, and macro/watch outcomes are captured in the security audit log.
 
-### Repository
-
-- The `website/` directory is ignored and is not part of this release.
 
