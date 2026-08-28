@@ -18,7 +18,6 @@ NIM Agent is a Manifest V3 browser extension for AI-assisted web research, brows
 - **Batch form filling:** The agent can populate up to 25 text fields, dropdowns, checkboxes, radio buttons, and editable fields in one action, with optional form submission.
 - **Safer form automation:** Password and payment-related fields are automatically skipped during batch filling, while the result reports filled, skipped, and failed fields clearly.
 - **Improved agent activity display:** Session recall and form-filling actions now appear with dedicated labels and icons in the side-panel activity feed.
-- **Project landing page:** A standalone product landing page is included in `website/index.html`.
 
 ## Quick start
 
