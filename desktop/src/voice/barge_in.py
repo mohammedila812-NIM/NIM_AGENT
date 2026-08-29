@@ -17,7 +17,7 @@ class BargeInController:
     Synchronizes VAD, STT, TTS, and Agent task cancellation:
     1. Detects speech onset in < 30ms via VAD
     2. Instantly terminates TTS playback via pygame.mixer (< 10ms)
-    3. Aborts in-flight LLM token streams & active tool executions
+    3. Aborts in-flight LLM token streams & active tool executions ONLY if busy
     4. Transcribes the user's speech and routes it as the next incoming goal.
     """
 
@@ -25,12 +25,14 @@ class BargeInController:
         self,
         voice_engine: Optional[VoiceEngine] = None,
         stt_engine: Optional[SpeechToTextEngine] = None,
+        is_task_busy: Optional[Callable[[], bool]] = None,
         on_cancel_task: Optional[Callable[[], None]] = None,
         on_voice_command: Optional[Callable[[str], None]] = None,
         on_amplitude: Optional[Callable[[float], None]] = None,
     ):
         self.voice_engine = voice_engine or VoiceEngine()
         self.stt_engine = stt_engine or SpeechToTextEngine()
+        self.is_task_busy = is_task_busy
         self.on_cancel_task = on_cancel_task
         self.on_voice_command = on_voice_command
         self.on_amplitude = on_amplitude
@@ -63,14 +65,17 @@ class BargeInController:
     def _on_speech_start(self):
         """Triggered immediately upon voice activity onset."""
         self._last_speech_time = time.time()
+        was_busy = False
 
         # 1. Instant Audio Cutoff (< 10ms)
         if self.voice_engine.is_speaking:
             logger.info("⚡ Barge-In: Halting ongoing TTS speech.")
             self.voice_engine.stop_speaking()
+            was_busy = True
 
-        # 2. Cancel in-flight agent task / LLM streaming
-        if self.on_cancel_task:
+        # 2. Cancel in-flight agent task ONLY if agent is actually running a task
+        is_running = self.is_task_busy() if self.is_task_busy else False
+        if is_running and self.on_cancel_task:
             logger.info("⚡ Barge-In: Cancelling in-flight agent reasoning task.")
             try:
                 self.on_cancel_task()

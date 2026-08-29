@@ -99,6 +99,7 @@ async def run_cli():
     barge_in_controller = BargeInController(
         voice_engine=voice_engine,
         stt_engine=stt_engine,
+        is_task_busy=lambda: orchestrator.is_busy or voice_engine.is_speaking,
         on_cancel_task=lambda: main_loop.call_soon_threadsafe(cancel_active_task),
         on_voice_command=on_voice_command_received,
         on_amplitude=on_voice_amplitude,
@@ -106,12 +107,14 @@ async def run_cli():
 
     def cancel_active_task():
         """Immediately aborts in-flight task, stops LLM generation, and halts voice TTS."""
-        orchestrator.cancel_current_task()
+        cancelled_task = orchestrator.cancel_current_task()
+        was_speaking = voice_engine.is_speaking
         voice_engine.stop_speaking()
-        console.print("\n[bold red]⛔ Task cancelled by operator (Escape / Barge-In).[/bold red]")
-        if active_hud:
-            active_hud.set_mode("idle")
-            active_hud.append_log("⛔ Task cancelled by operator (Escape / Barge-In).")
+        if cancelled_task or was_speaking:
+            console.print("\n[bold red]⛔ Task cancelled by operator (Escape / Barge-In).[/bold red]")
+            if active_hud:
+                active_hud.set_mode("idle")
+                active_hud.append_log("⛔ Task cancelled by operator (Escape / Barge-In).")
 
     # Global keyboard listener for ESC key
     try:

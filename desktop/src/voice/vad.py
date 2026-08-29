@@ -17,19 +17,21 @@ except ImportError:
 
 class VADEngine:
     """
-    Real-Time Voice Activity Detection (VAD) with Adaptive Noise Calibration.
+    Real-Time Noise-Adaptive Voice Activity Detection (VAD).
     Monitors 16kHz mono microphone stream, calculates RMS energy levels,
-    detects speech onset/offset, and signals instant Barge-In.
+    filters ambient clicks/noise via multi-frame onset debouncing,
+    and signals instant Barge-In.
     """
 
     SAMPLE_RATE = 16000     # 16kHz
     FRAME_DURATION_MS = 30  # 30ms frames (480 samples = 960 bytes for int16)
     FRAME_SIZE = int(SAMPLE_RATE * FRAME_DURATION_MS / 1000)
+    MIN_ONSET_FRAMES = 2    # Require at least 2 consecutive speech frames (60ms) to trigger
 
     def __init__(
         self,
         vad_mode: int = 2,
-        energy_threshold: float = 0.02,
+        energy_threshold: float = 0.03,
         silence_timeout_sec: float = 0.8,
         on_speech_start: Optional[Callable[[], None]] = None,
         on_speech_end: Optional[Callable[[bytes], None]] = None,
@@ -46,9 +48,12 @@ class VADEngine:
         self._is_running = False
         self._thread: Optional[threading.Thread] = None
         self._is_speaking = False
+        self._consecutive_speech = 0
+        self._pending_frames: List[bytes] = []
         self._speech_frames: List[bytes] = []
         self._silence_start: Optional[float] = None
-        self._noise_floor: float = 0.01
+        self._calibration_frames: List[float] = []
+        self._calibrated = False
 
     @property
     def is_running(self) -> bool:
@@ -58,9 +63,9 @@ class VADEngine:
         """Calibrates baseline ambient noise floor from initial audio samples."""
         if samples:
             avg_energy = float(np.mean(samples))
-            self._noise_floor = max(0.005, avg_energy)
-            self.energy_threshold = max(0.02, self._noise_floor * 2.5)
-            logger.debug("Calibrated ambient noise floor: %.4f, threshold: %.4f", self._noise_floor, self.energy_threshold)
+            self.energy_threshold = max(0.025, avg_energy * 3.5)
+            self._calibrated = True
+            logger.debug("VAD auto-calibrated: baseline energy=%.4f, threshold=%.4f", avg_energy, self.energy_threshold)
 
     def compute_frame_energy(self, pcm_bytes: bytes) -> float:
         """Calculates normalized RMS energy for a 16-bit PCM audio frame."""
@@ -78,59 +83,80 @@ class VADEngine:
 
     def process_frame(self, pcm_bytes: bytes) -> bool:
         """
-        Processes a single 30ms PCM frame.
-        Returns True if voice activity was detected in this frame.
+        Processes a single 30ms PCM frame with onset debounce & noise calibration.
         """
         if len(pcm_bytes) != self.FRAME_SIZE * 2:
             return False
 
         energy = self.compute_frame_energy(pcm_bytes)
+
+        # Initial calibration period (first 20 frames = 600ms)
+        if not self._calibrated:
+            self._calibration_frames.append(energy)
+            if len(self._calibration_frames) >= 20:
+                self.calibrate_noise_floor(self._calibration_frames)
+            return False
+
         if self.on_level:
             self.on_level(min(1.0, energy * 4.0))
 
-        is_speech = False
-        if self._vad is not None:
-            try:
-                is_speech = self._vad.is_speech(pcm_bytes, self.SAMPLE_RATE)
-            except Exception:
-                is_speech = energy > self.energy_threshold
-        else:
-            is_speech = energy > self.energy_threshold
+        # Check if frame contains voice activity
+        is_speech_frame = False
+        if energy > self.energy_threshold:
+            if self._vad is not None:
+                try:
+                    is_speech_frame = self._vad.is_speech(pcm_bytes, self.SAMPLE_RATE)
+                except Exception:
+                    is_speech_frame = True
+            else:
+                is_speech_frame = True
 
         now = time.time()
 
-        if is_speech:
+        if is_speech_frame:
+            self._consecutive_speech += 1
+            self._pending_frames.append(pcm_bytes)
             self._silence_start = None
-            if not self._is_speaking:
+
+            if not self._is_speaking and self._consecutive_speech >= self.MIN_ONSET_FRAMES:
                 self._is_speaking = True
-                self._speech_frames = []
-                logger.info("🎙️ Voice activity onset detected (Barge-In).")
+                self._speech_frames = list(self._pending_frames)
+                self._pending_frames = []
+                logger.info("🎙️ Voice activity onset detected.")
                 if self.on_speech_start:
                     self.on_speech_start()
+            elif self._is_speaking:
+                self._speech_frames.append(pcm_bytes)
 
-            self._speech_frames.append(pcm_bytes)
+        else:
+            self._consecutive_speech = max(0, self._consecutive_speech - 1)
+            if not self._is_speaking:
+                self._pending_frames = []
+            else:
+                self._speech_frames.append(pcm_bytes)
+                if self._silence_start is None:
+                    self._silence_start = now
+                elif (now - self._silence_start) >= self.silence_timeout_sec:
+                    # Speech segment ended
+                    self._is_speaking = False
+                    self._consecutive_speech = 0
+                    total_audio = b"".join(self._speech_frames)
+                    self._speech_frames = []
+                    self._pending_frames = []
+                    self._silence_start = None
+                    logger.info("🎙️ Voice activity ended (%d bytes).", len(total_audio))
+                    if self.on_speech_end:
+                        self.on_speech_end(total_audio)
 
-        elif self._is_speaking:
-            self._speech_frames.append(pcm_bytes)
-            if self._silence_start is None:
-                self._silence_start = now
-            elif (now - self._silence_start) >= self.silence_timeout_sec:
-                # Speech ended
-                self._is_speaking = False
-                total_audio = b"".join(self._speech_frames)
-                self._speech_frames = []
-                self._silence_start = None
-                logger.info("🎙️ Voice activity ended (Captured %d bytes).", len(total_audio))
-                if self.on_speech_end:
-                    self.on_speech_end(total_audio)
-
-        return is_speech
+        return is_speech_frame
 
     def start(self):
-        """Starts real-time microphone listening loop in background thread."""
+        """Starts real-time microphone listening loop."""
         if self._is_running:
             return
         self._is_running = True
+        self._calibration_frames = []
+        self._calibrated = False
         self._thread = threading.Thread(target=self._capture_loop, daemon=True)
         self._thread.start()
         logger.info("VAD Engine started listening on microphone.")
@@ -142,17 +168,17 @@ class VADEngine:
             self._thread.join(timeout=1.0)
         self._is_speaking = False
         self._speech_frames = []
+        self._pending_frames = []
         logger.info("VAD Engine stopped.")
 
     def _capture_loop(self):
-        """Continuous sounddevice microphone stream capture."""
+        """Continuous microphone stream capture via sounddevice."""
         try:
             import sounddevice as sd
 
             def audio_callback(indata, frames, time_info, status):
                 if not self._is_running:
                     raise sd.CallbackStop()
-                # Convert float32 [-1.0, 1.0] to int16 PCM
                 pcm_data = (indata[:, 0] * 32767).astype(np.int16).tobytes()
                 self.process_frame(pcm_data)
 

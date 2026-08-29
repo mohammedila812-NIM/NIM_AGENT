@@ -82,6 +82,7 @@ async def test_barge_in_controller_coordination():
 
     barge_in = BargeInController(
         voice_engine=tts,
+        is_task_busy=lambda: True,
         on_cancel_task=mock_cancel,
         on_voice_command=mock_command
     )
