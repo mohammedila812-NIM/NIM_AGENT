@@ -34,6 +34,8 @@ export default defineConfig({
       'https://api.duckduckgo.com/*',
       'http://localhost:8000/*',
       'http://localhost:11434/*',
+      'http://127.0.0.1:7432/*',
+      '<all_urls>',
     ],
     side_panel: {
       default_path: 'sidepanel.html',

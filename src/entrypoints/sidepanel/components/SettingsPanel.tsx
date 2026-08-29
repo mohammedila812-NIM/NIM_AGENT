@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Key, Globe, Cpu, DollarSign, Save, Check, RefreshCw, Shield, AlertTriangle, Sparkles } from 'lucide-react';
+import { Settings, Key, Globe, Cpu, DollarSign, Save, Check, RefreshCw, Shield, AlertTriangle, Sparkles, Monitor } from 'lucide-react';
 import { PROVIDER_PRESETS } from '../../../lib/llm/providers';
 import { saveProviderKeys, loadProviderKeys, saveWorkerConfig, loadWorkerConfig } from '../../../lib/storage/secure';
 import { discoverModels, sortModelsForDisplay, isChatModel, type DiscoveredModel } from '../../../lib/llm/model-registry';
 import { DEFAULT_LIMITS, resetDailyCounters, type CostLimits } from '../../../lib/agent/cost-guard';
+import { desktopBridge, DEFAULT_BRIDGE_CONFIG, type DesktopBridgeConfig, type BridgeConnectionState } from '../../../lib/bridge/desktop-bridge';
 
 export const SettingsPanel: React.FC = () => {
   const [providerId, setProviderId] = useState('nim-cloud');
@@ -17,6 +18,10 @@ export const SettingsPanel: React.FC = () => {
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
+  // Desktop Bridge configuration
+  const [bridgeConfig, setBridgeConfig] = useState<DesktopBridgeConfig>(DEFAULT_BRIDGE_CONFIG);
+  const [bridgeState, setBridgeState] = useState<BridgeConnectionState>(desktopBridge.getState());
+
   // Worker / Sub-agent configuration
   const [workerProviderId, setWorkerProviderId] = useState('nim-cloud');
   const [workerApiKey, setWorkerApiKey] = useState('');
@@ -24,6 +29,8 @@ export const SettingsPanel: React.FC = () => {
 
   useEffect(() => {
     void loadSettings();
+    const unsub = desktopBridge.onStateChange(setBridgeState);
+    return () => unsub();
   }, []);
 
   const loadSettings = async () => {
@@ -33,12 +40,14 @@ export const SettingsPanel: React.FC = () => {
       'selectedModelId',
       'searchProvider',
       'costLimits',
+      'desktopBridgeConfig',
     ])) as {
       activeProviderId?: string;
       customBaseUrl?: string;
       selectedModelId?: string;
       searchProvider?: 'brave' | 'serper';
       costLimits?: CostLimits;
+      desktopBridgeConfig?: DesktopBridgeConfig;
     };
 
     const pId = local.activeProviderId || 'nim-cloud';
@@ -46,6 +55,7 @@ export const SettingsPanel: React.FC = () => {
     setCustomBaseUrl(local.customBaseUrl || '');
     setSearchProvider(local.searchProvider || 'brave');
     if (local.costLimits) setCostLimits(local.costLimits);
+    if (local.desktopBridgeConfig) setBridgeConfig(local.desktopBridgeConfig);
 
     const keys = await loadProviderKeys(pId);
     if (keys) {
@@ -133,7 +143,14 @@ export const SettingsPanel: React.FC = () => {
       selectedModel: chosenModel,
       searchProvider,
       costLimits,
+      desktopBridgeConfig: bridgeConfig,
     });
+
+    if (bridgeConfig.enabled && bridgeConfig.authToken) {
+      desktopBridge.connect(bridgeConfig.serverUrl, bridgeConfig.authToken);
+    } else {
+      desktopBridge.disconnect();
+    }
 
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 2000);
@@ -386,6 +403,85 @@ export const SettingsPanel: React.FC = () => {
               className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-100 font-mono text-xs"
             />
           </div>
+        </div>
+      </div>
+
+      {/* Desktop Bridge (NIM JARVIS Partner) */}
+      <div className="border-t border-slate-800 pt-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="font-semibold text-slate-200 flex items-center gap-1.5">
+            <Monitor className="w-3.5 h-3.5 text-brand-400" />
+            <span>NIM JARVIS Desktop Bridge</span>
+          </div>
+          <div className="flex items-center gap-1.5 text-[11px] font-mono">
+            <span className={`w-2 h-2 rounded-full ${bridgeState === 'connected' ? 'bg-emerald-400 animate-pulse' : bridgeState === 'connecting' ? 'bg-amber-400' : 'bg-slate-600'}`} />
+            <span className={bridgeState === 'connected' ? 'text-emerald-400 font-semibold' : bridgeState === 'connecting' ? 'text-amber-400' : 'text-slate-400'}>
+              {bridgeState === 'connected' ? 'Connected' : bridgeState === 'connecting' ? 'Connecting...' : 'Disconnected'}
+            </span>
+          </div>
+        </div>
+        <p className="text-[11px] text-slate-400 leading-relaxed">
+          Connect with the local <strong>NIM JARVIS Desktop</strong> agent to collaborate on native OS workflows, file transformations, and delegated research.
+        </p>
+
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <label className="text-[11px] text-slate-400">Enable Desktop Bridge</label>
+            <input
+              type="checkbox"
+              checked={bridgeConfig.enabled}
+              onChange={(e) => setBridgeConfig({ ...bridgeConfig, enabled: e.target.checked })}
+              className="rounded bg-slate-950 border-slate-700 text-brand-500 focus:ring-0"
+            />
+          </div>
+
+          {bridgeConfig.enabled && (
+            <div className="space-y-2 pt-1">
+              <div>
+                <label className="text-[10px] text-slate-400">Desktop WebSocket URL</label>
+                <input
+                  type="text"
+                  value={bridgeConfig.serverUrl}
+                  onChange={(e) => setBridgeConfig({ ...bridgeConfig, serverUrl: e.target.value })}
+                  placeholder="ws://127.0.0.1:7432"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-100 font-mono text-xs focus:border-brand-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] text-slate-400">Pairing Auth Token (from <code>/bridge</code> in Desktop CLI)</label>
+                <input
+                  type="password"
+                  value={bridgeConfig.authToken}
+                  onChange={(e) => setBridgeConfig({ ...bridgeConfig, authToken: e.target.value })}
+                  placeholder="nim_pair_..."
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-100 font-mono text-xs focus:border-brand-500"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    void chrome.storage.local.set({ desktopBridgeConfig: bridgeConfig });
+                    desktopBridge.connect(bridgeConfig.serverUrl, bridgeConfig.authToken);
+                  }}
+                  className="flex-1 py-1.5 bg-brand-700 hover:bg-brand-600 text-white rounded-lg text-xs font-medium transition"
+                >
+                  {bridgeState === 'connected' ? 'Reconnect Bridge' : 'Connect to Desktop'}
+                </button>
+                {bridgeState === 'connected' && (
+                  <button
+                    type="button"
+                    onClick={() => desktopBridge.disconnect()}
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium transition"
+                  >
+                    Disconnect
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

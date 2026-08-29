@@ -172,6 +172,27 @@ const SubagentHITLResponseSchema = z.object({
   approved: z.boolean(),
 });
 
+const BridgeConnectSchema = z.object({
+  type: z.literal('BRIDGE_CONNECT'),
+  payload: z.object({
+    url: z.string(),
+    authToken: z.string(),
+  }),
+});
+
+const BridgeDisconnectSchema = z.object({
+  type: z.literal('BRIDGE_DISCONNECT'),
+});
+
+const BridgeGetStateSchema = z.object({
+  type: z.literal('BRIDGE_GET_STATE'),
+});
+
+const BridgeStateChangedSchema = z.object({
+  type: z.literal('BRIDGE_STATE_CHANGED'),
+  state: z.enum(['disconnected', 'connecting', 'connected', 'error']),
+});
+
 export const MessageSchema = z.discriminatedUnion('type', [
   AgentStartSchema,
   AgentStopSchema,
@@ -194,6 +215,10 @@ export const MessageSchema = z.discriminatedUnion('type', [
   MacroSaveSchema,
   UndoActionSchema,
   KeyFinderSchema,
+  BridgeConnectSchema,
+  BridgeDisconnectSchema,
+  BridgeGetStateSchema,
+  BridgeStateChangedSchema,
 ]);
 
 export type ExtensionMessage = z.infer<typeof MessageSchema>;

@@ -15,6 +15,99 @@ import { executeWatchCheck } from '../lib/agent/watch-engine';
 let activeEngine: AgentEngine | null = null;
 const connectedPorts = new Set<chrome.runtime.Port>();
 
+// ── Desktop Bridge (WebSocket to NIM JARVIS Desktop) ──────────────────────────
+let bridgeWs: WebSocket | null = null;
+type BridgeState = 'disconnected' | 'connecting' | 'connected' | 'error';
+let bridgeState: BridgeState = 'disconnected';
+let bridgeReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let bridgeUrl = 'ws://127.0.0.1:7432';
+let bridgeToken = '';
+
+function broadcastBridgeState(state: BridgeState) {
+  bridgeState = state;
+  void chrome.storage.local.set({ bridgeConnectionState: state });
+  broadcast({ type: 'BRIDGE_STATE_CHANGED', state });
+}
+
+function startBridge(url: string, authToken: string) {
+  if (bridgeReconnectTimer) { clearTimeout(bridgeReconnectTimer); bridgeReconnectTimer = null; }
+  if (bridgeWs && (bridgeWs.readyState === WebSocket.OPEN || bridgeWs.readyState === WebSocket.CONNECTING)) {
+    bridgeWs.close();
+  }
+
+  bridgeUrl = url;
+  bridgeToken = authToken;
+  broadcastBridgeState('connecting');
+
+  try {
+    bridgeWs = new WebSocket(url);
+
+    bridgeWs.onopen = () => {
+      console.log('[Bridge] WebSocket connected, sending auth...');
+      bridgeWs?.send(JSON.stringify({
+        type: 'auth_request',
+        payload: { client: 'nim-agent-browser-extension', version: '1.0.0' },
+        auth_token: authToken,
+      }));
+    };
+
+    bridgeWs.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data as string) as Record<string, unknown>;
+        const msgType = msg.type as string;
+
+        if (msgType === 'auth_response') {
+          console.log('[Bridge] Authenticated with NIM JARVIS Desktop.');
+          broadcastBridgeState('connected');
+          return;
+        }
+        if (msgType === 'error') {
+          console.warn('[Bridge] Server error:', (msg.payload as Record<string,unknown>)?.message);
+          broadcastBridgeState('error');
+          return;
+        }
+        if (msgType === 'browser_task') {
+          const payload = (msg.payload || {}) as Record<string, unknown>;
+          const taskId = (payload.task_id as string) || `btask_${Date.now()}`;
+          const goal = (payload.goal as string) || '';
+          console.log(`[Bridge] Received browser task: "${goal}" (${taskId})`);
+          void handleAgentStart(taskId, goal, undefined, false);
+        }
+      } catch (e) {
+        console.error('[Bridge] Message parse error:', e);
+      }
+    };
+
+    bridgeWs.onclose = () => {
+      console.log('[Bridge] Disconnected from Desktop.');
+      broadcastBridgeState('disconnected');
+      // Auto-reconnect in 5s if we had an auth token configured
+      if (bridgeToken) {
+        bridgeReconnectTimer = setTimeout(() => startBridge(bridgeUrl, bridgeToken), 5000);
+      }
+    };
+
+    bridgeWs.onerror = (err) => {
+      console.warn('[Bridge] WebSocket error:', err);
+      broadcastBridgeState('error');
+    };
+  } catch (e) {
+    console.error('[Bridge] Failed to create WebSocket:', e);
+    broadcastBridgeState('error');
+  }
+}
+
+function stopBridge() {
+  if (bridgeReconnectTimer) { clearTimeout(bridgeReconnectTimer); bridgeReconnectTimer = null; }
+  bridgeToken = ''; // clear so auto-reconnect stops
+  if (bridgeWs) {
+    bridgeWs.close();
+    bridgeWs = null;
+  }
+  broadcastBridgeState('disconnected');
+}
+// ──────────────────────────────────────────────────────────────────────────────
+
 function broadcast(msg: Record<string, unknown>): void {
   // Send to all connected sidepanel ports
   for (const port of connectedPorts) {
@@ -53,6 +146,15 @@ export default defineBackground(() => {
     }
   });
 
+  // Restore bridge connection from saved config on service-worker wake
+  void chrome.storage.local.get(['desktopBridgeConfig']).then((data) => {
+    const cfg = data.desktopBridgeConfig as { enabled?: boolean; serverUrl?: string; authToken?: string; autoConnect?: boolean } | undefined;
+    if (cfg?.enabled && cfg.autoConnect && cfg.authToken) {
+      console.log('[Bridge] Auto-restoring bridge from saved config...');
+      startBridge(cfg.serverUrl || 'ws://127.0.0.1:7432', cfg.authToken);
+    }
+  });
+
   // Check for interrupted tasks on worker wake
   void recoverInterruptedTasks();
 
@@ -81,12 +183,31 @@ export default defineBackground(() => {
     }
   });
 
-  // Main agent communication listener
+  // Main agent + bridge communication listener
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // SECURITY: Reject foreign senders
     if (sender.id !== chrome.runtime.id) {
       console.warn('[Security] Rejecting message from foreign extension:', sender.id);
       return false;
+    }
+
+    // Bridge control messages (bypass isValidMessage for these)
+    if (message?.type === 'BRIDGE_CONNECT') {
+      const { url, authToken } = (message.payload || {}) as { url: string; authToken: string };
+      startBridge(url, authToken);
+      sendResponse({ status: 'connecting' });
+      return true;
+    }
+
+    if (message?.type === 'BRIDGE_DISCONNECT') {
+      stopBridge();
+      sendResponse({ status: 'disconnected' });
+      return true;
+    }
+
+    if (message?.type === 'BRIDGE_GET_STATE') {
+      sendResponse({ state: bridgeState });
+      return true;
     }
 
     if (!isValidMessage(message)) {
@@ -360,6 +481,18 @@ async function handleAgentStart(
       taskId,
       finalResult: finalResult?.trim() || undefined,
     });
+
+    // Send result back to Desktop Bridge if connected
+    if (bridgeWs && bridgeWs.readyState === WebSocket.OPEN) {
+      bridgeWs.send(JSON.stringify({
+        type: 'browser_result',
+        payload: {
+          task_id: taskId,
+          success: true,
+          summary: finalResult?.trim() || 'Task completed successfully in browser.',
+        },
+      }));
+    }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     await saveTask({
@@ -376,6 +509,19 @@ async function handleAgentStart(
       status: 'error',
       detail: msg,
     });
+
+    // Send error back to Desktop Bridge if connected
+    if (bridgeWs && bridgeWs.readyState === WebSocket.OPEN) {
+      bridgeWs.send(JSON.stringify({
+        type: 'browser_result',
+        payload: {
+          task_id: taskId,
+          success: false,
+          summary: `Browser task error: ${msg}`,
+          error: msg,
+        },
+      }));
+    }
   } finally {
     activeEngine = null;
   }

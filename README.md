@@ -1,79 +1,138 @@
-# NIM Agent
+# NIM AGENT — Windows Desktop Automation & Browser Intelligence
 
-NIM Agent is a Manifest V3 browser extension for AI-assisted web research, browsing, and task automation. It is built with TypeScript, React, and WXT, and supports NVIDIA NIM plus other OpenAI-compatible model providers.
+[![GitHub release](https://img.shields.io/github/v/release/mohammedila812-NIM/NIM_AGENT?color=df6b48&style=flat-square)](https://github.com/mohammedila812-NIM/NIM_AGENT/releases)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078d4?style=flat-square&logo=windows)](https://github.com/mohammedila812-NIM/NIM_AGENT)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue?style=flat-square&logo=python)](https://python.org)
+[![Extension](https://img.shields.io/badge/extension-Chrome%20%7C%20Edge%20%7C%20Brave-green?style=flat-square&logo=google-chrome)](https://github.com/mohammedila812-NIM/NIM_AGENT)
+[![Instagram](https://img.shields.io/badge/Instagram-@mahamadali210-E4405F?style=flat-square&logo=instagram)](https://instagram.com/mahamadali210)
+[![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-black?style=flat-square)](LICENSE)
 
-> **Personal hobby project:** NIM Agent is created and maintained by Mohammed Ali as a non-commercial hobby project. You are welcome to download, study, modify, and improve it for non-commercial purposes. See [LICENSE](LICENSE) for the full terms.
+> **Autonomous AI assistant for Windows and any Chromium browser.**  
+> Execute OS-level automation, actuate applications, manage files and emails, monitor processes, and research the open web — all from a single unified agentic loop with a global **`ESC` kill-switch**.
 
-## Highlights
+---
 
-- Side-panel assistant with chat, task history, research notes, security log, and settings.
-- Browser tools for page reading, navigation, clicking, typing, scrolling, tables, screenshots, and web search.
-- Support for NVIDIA NIM, OpenAI, Google AI Studio, Groq, Ollama, and custom OpenAI-compatible endpoints.
-- Safety features including prompt-injection quarantine, sensitive-field blocking, confirmation for risky actions, budget limits, and audit logging.
-- Optional parallel research workers that are restricted to their starting domain.
+## ⚡ Key Highlights
 
-## What's new
+### 🖥️ Windows Desktop Automation Subsystems (`desktop/`)
+- **Hybrid Actuation & Control:** Windows UI Automation (UIA accessibility tree) + Vision LLM grounding + smooth Bézier mouse kinematics + closed-loop visual verification (`dHash` diffing).
+- **Application & Multi-Window Manager:** Launch apps by friendly alias, bypass focus-stealing locks, reposition windows across multi-monitor setups, and snapshot/restore complete workspace layouts.
+- **Intelligent Context-Aware Scheduler:** Natural language & cron-based scheduling (`"every weekday at 9am"`), Outlook meeting conflict gates, and missed-job recovery.
+- **Memory-Aware Email Integration:** Direct Microsoft Outlook COM & SMTP/IMAP integration, automated follow-up tracking, sensitive data redactor, and high-risk mass-send approvals.
+- **Adaptive Process & Resource Monitor:** SQLite per-app baseline learning, resource anomaly scoring, open socket/file handle diagnostics, and safe undoable process kill with automatic window state restorer.
+- **Vision-Verified File Converter:** Bidirectional conversion across XLSX, CSV, DOCX, Markdown, PDF, images, and archives (`zip`, `tar.gz`) with closed-loop perceptual layout spot-checks.
+- **Global `ESC` Kill-Switch:** Press `ESC` at any time to instantly sever the LLM SSE stream, abort in-flight tool execution, silence TTS voice, and reset the HUD to idle.
+- **Floating Acrylic HUD:** Minimalist translucent overlay (`Ctrl+Space`), live streaming reasoning steps, proactive suggestion cards, and Edge-TTS neural speech (`JARVIS` / `FRIDAY`).
+- **Default LLM Routing:** Built-in automatic 35s rate-limit cooldown recovery for **Gemini Flash** (primary brain) and **NVIDIA NIM Vision** (visual coordinate grounding).
 
-### v0.4.0
+### 🌐 Browser Extension Copilot (`extension/`)
+- **Manifest V3 Side Panel (`Alt+Shift+N`):** Works across Chrome, Microsoft Edge, Brave, and Opera.
+- **DOM & Tab Inspector:** Semantic page parsing, visual bounding boxes, form auto-filling, table scraper, and cross-tab multi-hop web research.
+- **Local WebSocket Bridge (`ws://127.0.0.1:7432`):** Seamless real-time context sharing between browser actions and desktop OS tools.
 
-- **Deterministic macro replay:** Saved task macros can now replay their recorded browser actions directly, avoiding a new planning pass and normally using zero model tokens.
-- **Self-healing macro targets:** When a saved selector has drifted, replay first tries semantic element matching and can use a budget-checked model lookup as a fallback.
-- **Watch-triggered automation:** A monitor can optionally run one of your saved macros when its condition matches, with the outcome included in the notification and security log.
-- **Quota-aware retries:** Provider requests now respect `Retry-After` and provider quota delays, retry transient failures up to five times, and show auto-resume status in the agent UI.
-- **Better responses and navigation:** Assistant messages render headings, lists, code blocks, and tables; navigation now waits for completion and SPA settling before the next action.
+---
 
-See [CHANGELOG.md](CHANGELOG.md) for the complete release notes.
+## 🏛️ Architecture
 
-## Quick start
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    User Interaction                         │
+│   [Ctrl+Space] Floating Acrylic HUD   |   [Alt+Shift+N] Chrome Side Panel │
+└──────────────┬───────────────────────────────┬──────────────┘
+               │                               │
+               ▼                               ▼
+┌──────────────────────────────┐  ws://7432   ┌──────────────────────────────┐
+│    Desktop Runtime (Python)  │◄────────────►│  Browser Extension (MV3)     │
+│   • UIA + Vision Actuator    │              │  • DOM Tree & Tab Inspector  │
+│   • Window & Process Monitor │              │  • Web Scraper & Form Filler │
+│   • Scheduler & Email COM    │              │  • Research Coordinator      │
+│   • File & Archive Converter │              └──────────────────────────────┘
+│   • Snapshot Rollback & ESC  │
+└──────────────┬───────────────┘
+               │
+               ▼
+┌─────────────────────────────────────────────────────────────┐
+│                      LLM Routing Layer                      │
+│   • Google AI Studio (Gemini Flash - Default Brain)         │
+│   • NVIDIA NIM (Llama-3.2-90B Vision Instruct)              │
+│   • OpenAI / Groq / Local Ollama Endpoints                  │
+│   • Windows Credential Vault (Zero Plaintext Secrets)        │
+└─────────────────────────────────────────────────────────────┘
+```
 
-Prerequisites: Node.js 18 or later and a Chromium-based browser (Chrome or Edge recommended).
+---
+
+## 🚀 Quick Start
+
+### 1. Windows Desktop Agent
+
+**Prerequisites:** Windows 10/11, Python 3.11 or newer.
+
+```powershell
+# Clone the repository
+git clone https://github.com/mohammedila812-NIM/NIM_AGENT.git
+cd NIM_AGENT/desktop
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Run the desktop agent & HUD
+python -m src.main
+```
+
+- Press **`Ctrl+Space`** to toggle the floating HUD.
+- Press **`ESC`** at any moment to cancel a running task.
+- API keys are securely stored in the Windows Credential Vault on first launch.
+
+### 2. Browser Extension (Any Chromium Browser)
+
+**Prerequisites:** Node.js 18+ (for building) or load pre-built extension.
 
 ```bash
+# From repository root
 npm install
 npm run build
 ```
 
-Load the generated extension from `.output/chrome-mv3`:
+1. Open `chrome://extensions` (or `edge://extensions`, `brave://extensions`).
+2. Enable **Developer mode** (top right toggle).
+3. Click **Load unpacked** and choose the `.output/chrome-mv3` folder.
+4. Press **`Alt+Shift+N`** on any webpage to open the NIM Agent Side Panel.
 
-1. Open `chrome://extensions` (or `edge://extensions`).
-2. Enable **Developer mode**.
-3. Select **Load unpacked** and choose `.output/chrome-mv3`.
-4. Open the NIM Agent side panel, acknowledge the privacy disclosure, and configure a model provider and API key in Settings.
+---
 
-See [the user guide](docs/USER_GUIDE.md) for full setup, use, privacy, and troubleshooting instructions.
+## 🧪 Testing
 
-## Development
+The repository includes a comprehensive automated test suite for all desktop subsystems and browser tools:
 
-```bash
-npm install
-npm run dev
+```powershell
+cd desktop
+pytest tests/ -v
 ```
 
-Useful commands:
+---
 
-```bash
-npm run type-check
-npm test
-npm run build
-npm run build:firefox
-```
+## 🛡️ Security & Privacy Principles
 
-`npm run zip` and `npm run zip:firefox` create distributable extension archives.
+1. **No Silent Operations:** All file modifications, process kills, and emails are displayed in the HUD execution trace.
+2. **Local Credential Storage:** API keys and sensitive tokens never leave your local machine.
+3. **Atomic Undo & Rollback:** The `SnapshotManager` saves pre-execution checkpoints for instant one-command restoration.
+4. **Permanent OS Shield:** Critical Windows processes (`csrss.exe`, `svchost.exe`, `wininit.exe`, kernel threads) are hard-protected by `SecurityGuard`.
 
-## Privacy and security
+---
 
-NIM Agent has no developer-operated backend. Requests are sent directly to the provider configured by the user. API keys are stored in Chrome extension-local storage; this is sandboxed from websites and other extensions, but is not encrypted by the extension. Do not commit API keys or local `.env` files.
+## 📦 Releases
 
-## Repository contents
+- **[Latest Release (v1.0.0)](https://github.com/mohammedila812-NIM/NIM_AGENT/releases):** Full Windows Desktop Automation Suite, Actuation, Process Monitor, Converter, Scheduler, Outlook, Global ESC Kill-Switch, and Chrome Extension Bridge.
+- **[Changelog](CHANGELOG.md):** Complete chronological log of features and fixes.
 
-- `src/` — extension source code.
-- `public/` — icons and static assets.
-- `e2e/` — end-to-end tests.
-- `docs/USER_GUIDE.md` — installation and usage guide.
-- `.env.example` — optional development configuration template without secrets.
+---
 
-## Author and license
+## 👤 Author & Community
 
-Created by **Mohammed Ali** as a personal, non-commercial hobby project.
+Created and maintained by **Mohammed Ali** ([@mahamadali210](https://instagram.com/mahamadali210)).
 
-This project is source-available under the [PolyForm Noncommercial License 1.0.0](LICENSE). You may use, modify, and distribute it for non-commercial purposes. Commercial use requires prior written permission from Mohammed Ali.
+- **GitHub:** [https://github.com/mohammedila812-NIM/NIM_AGENT](https://github.com/mohammedila812-NIM/NIM_AGENT)
+- **Instagram:** [@mahamadali210](https://instagram.com/mahamadali210)
+
+This project is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE).

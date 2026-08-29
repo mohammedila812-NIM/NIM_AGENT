@@ -34,6 +34,11 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     baseUrl: 'http://localhost:11434/v1',
   },
   {
+    id: 'kira',
+    label: 'Kira AI',
+    baseUrl: 'https://kiraai.vn/api/v1',
+  },
+  {
     id: 'custom',
     label: 'Custom endpoint',
     baseUrl: '',

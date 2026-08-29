@@ -13,6 +13,16 @@ coverage/
 playwright-report/
 test-results/
 
+# Python & Desktop artefacts
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+*.sqlite
+*.sqlite3
+*.db
+desktop/*.db
+
 # Local configuration and secrets
 .env
 .env.local
