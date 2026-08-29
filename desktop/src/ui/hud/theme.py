@@ -1,44 +1,50 @@
 """
 HUD Theme & Design Tokens for NIM JARVIS Futuristic Overlay
+Based on Stitch Design System (NIM-Agent HUD)
 """
 
 THEME = {
-    # Surfaces
-    "bg_dark": "#070b14",
-    "card_bg": "#0d1527",
-    "card_bg_soft": "#101b31",      # thought-ticker / input surfaces
-    "card_border": "#1a2942",
-    "glass_highlight": "#33507d",   # faint top-edge line that sells the "glass" read
-    "canvas_bg": "#0d1527",         # must match whatever frame a Canvas sits inside
+    # Surfaces & Glass
+    "bg_dark": "#071425",           # Deep Cyber Navy base
+    "bg_glass": "#0d1a2b",          # Frosted acrylic layer
+    "card_bg": "#0a1829",           # Main panel background
+    "card_bg_soft": "#0f233a",      # Log stream / input surface
+    "card_border": "#1e3752",       # Subtle outer border
+    "border_neon": "#44788c",       # Neon glowing border
+    "glass_highlight": "#3b607e",   # Light-catching top bevel
+    "canvas_bg": "#0a1829",
 
-    # Accents
-    "accent_cyan": "#00f0ff",
-    "accent_glow": "#00a8ff",
-    "accent_green": "#00ff9d",
-    "accent_amber": "#ffb800",
-    "accent_magenta": "#ff007f",
-    "accent_core": "#eafcff",       # near-white — the hot centre of the reactor glow
+    # Accents (Stitch Design Spec)
+    "accent_sage": "#8fb7ab",       # Primary Status Neon (Telemetry, Ready, Verified)
+    "accent_teal": "#aad3c6",       # Bright Teal (Active stream)
+    "accent_coral": "#df6b48",      # Secondary Alert / Kill-Switch (ESC Cancel, Interrupts)
+    "accent_coral_hover": "#c85736",
+    "accent_amber": "#d9ab58",      # Thinking / Pending Approval
+    "accent_glow": "#62998a",
+    "accent_core": "#eafcff",       # Reactor hot-center white
 
-    # Text
-    "text_primary": "#ffffff",
-    "text_secondary": "#8da2c0",
-    "text_muted": "#506380",
+    # Text & Typography
+    "text_primary": "#d6e3fb",
+    "text_secondary": "#a8c0cc",
+    "text_muted": "#5a7a8a",
+    "text_dim": "#375060",
 
-    # Type
-    "font_family": "Segoe UI",
-    "font_mono": "Consolas",
+    # Font Families (Departure Mono terminal preferred, Consolas/Courier fallback)
+    "font_family": "Departure Mono",
+    "font_mono": "Departure Mono",
+    "font_fallback": "Consolas",
 
-    # Motion (ms) — reuse these everywhere so the HUD feels choreographed as
-    # one system, rather than a pile of separately-tuned widgets.
-    "duration_fast": 120,       # button flashes, dispatch acknowledgement
-    "duration_normal": 220,     # expand/collapse
-    "duration_reveal": 14,      # per-character typewriter reveal for new thoughts
-    "period_breathe": 2600,     # reactor glow breathing cycle
-    "period_pulse": 1400,       # status dot pulse cycle
-    "period_wave_idle": 1800,   # idle waveform sway cycle
+    # Motion & Timings (ms)
+    "duration_fast": 100,
+    "duration_normal": 200,
+    "duration_reveal": 12,
+    "period_breathe": 2400,
+    "period_pulse": 1300,
+    "period_wave_idle": 1600,
 
-    # Layout
-    "radius_card": 16,
-    "radius_control": 8,
+    # Layout Spacing
+    "radius_card": 12,
+    "radius_control": 6,
+    "radius_pill": 999,
     "spacing_unit": 4,
 }
