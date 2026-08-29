@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NIM AGENT — Windows Desktop Automation &amp; Browser Intelligence</title>
+  <meta name="description" content="NIM AGENT is an autonomous AI assistant for Windows (Python 3.11+) and browser extension for any browser. OS Actuation, email, scheduling, file conversion, process monitoring, and web research." />
+  <meta property="og:title" content="NIM AGENT — Windows Desktop Automation &amp; Browser Intelligence" />
+  <meta property="og:description" content="Autonomous Windows agent with Python support + Chrome extension for any browser. One model. Total control." />
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="css/styles.css" />
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+</head>
+<body class="grid-paper">
+
+  <!-- ======================== NAVBAR ======================== -->
+  <nav class="navbar" role="navigation" aria-label="Main navigation">
+    <div class="container">
+      <a href="#" class="logo-brand" aria-label="NIM AGENT home">
+        <div class="logo-icon" aria-hidden="true"><span></span></div>
+        <span>NIM_AGENT</span>
+      </a>
+
+      <ul class="nav-links">
+        <li><a href="#capabilities">Capabilities</a></li>
+        <li><a href="#method">Method</a></li>
+        <li><a href="#architecture">Architecture</a></li>
+        <li><a href="#safety">Safety</a></li>
+        <li><a href="#download">Download</a></li>
+      </ul>
+
+      <div class="nav-actions">
+        <a href="https://instagram.com/mahamadali210" class="btn-outline" target="_blank" rel="noopener" title="Follow on Instagram">
+          <i data-lucide="instagram" style="width:14px;height:14px;"></i>@mahamadali210
+        </a>
+        <a href="https://github.com/mohammedila812-NIM/NIM_AGENT" class="btn-secondary" target="_blank" rel="noopener">
+          <i data-lucide="github" style="width:14px;height:14px;"></i>GitHub
+        </a>
+      </div>
+
+      <button class="btn-mobile-menu" id="mobileMenuBtn" aria-label="Open menu">
+        <i data-lucide="menu" style="width:22px;height:22px;"></i>
+      </button>
+    </div>
+  </nav>
+
+  <!-- Mobile Drawer -->
+  <div class="mobile-nav-drawer" id="mobileDrawer" aria-hidden="true">
+    <ul>
+      <li><a href="#capabilities" class="mobile-drawer-link">Capabilities</a></li>
+      <li><a href="#method"       class="mobile-drawer-link">Method</a></li>
+      <li><a href="#architecture" class="mobile-drawer-link">Architecture</a></li>
+      <li><a href="#providers"    class="mobile-drawer-link">Providers</a></li>
+      <li><a href="#safety"       class="mobile-drawer-link">Safety</a></li>
+      <li><a href="#download"     class="mobile-drawer-link">Download</a></li>
+      <li><a href="https://github.com/mohammedila812-NIM/NIM_AGENT" target="_blank" class="mobile-drawer-link">GitHub Repo</a></li>
+      <li><a href="https://instagram.com/mahamadali210" target="_blank" class="mobile-drawer-link">Instagram (@mahamadali210)</a></li>
+    </ul>
+  </div>
+
+  <!-- ======================== HERO ======================== -->
+  <section class="hero-section" id="hero" aria-labelledby="heroHeading">
+    <div class="container">
+      <div class="hero-grid">
+
+        <!-- Left: Copy -->
+        <div class="nim-rise">
+          <div class="term-label">
+            <span class="dot" aria-hidden="true"></span>
+            Windows Desktop + Browser Extension · Autonomous AI
+          </div>
+
+          <h1 class="hero-title" id="heroHeading">
+            Your Windows OS<br />
+            &amp; browser,<br />
+            <em class="serif">understood.</em>
+          </h1>
+
+          <p class="hero-subtitle">
+            NIM AGENT is a local autonomous assistant built for Windows with Python support and an extension compatible with Chrome, Brave, Edge, and any Chromium browser. Actuate windows, process files, compose emails, and research the web with unified intelligence.
+          </p>
+
+          <div class="hero-cta-group">
+            <a href="#download" class="btn-primary">
+              <i data-lucide="download" style="width:14px;height:14px;"></i>
+              Get Started
+            </a>
+            <a href="https://github.com/mohammedila812-NIM/NIM_AGENT" target="_blank" rel="noopener" class="btn-secondary">
+              <i data-lucide="github" style="width:14px;height:14px;"></i>
+              Star on GitHub
+            </a>
+            <a href="https://instagram.com/mahamadali210" target="_blank" rel="noopener" class="btn-outline">
+              <i data-lucide="instagram" style="width:13px;height:13px;"></i>
+              @mahamadali210
+            </a>
+          </div>
+
+          <div class="hero-specs">
+            <span>v1.0.0</span>
+            <span style="opacity:.3;">|</span>
+            <span>Windows (Python 3.11+)</span>
+            <span style="opacity:.3;">|</span>
+            <span>Chrome Extension (Any Browser)</span>
+          </div>
+        </div>
+
+        <!-- Right: Live Dual Simulator -->
+        <div class="nim-float" style="animation-delay:.35s;">
+          <div class="sim-window" role="application" aria-label="Live agent simulator">
+            <!-- Title bar -->
+            <div class="sim-header">
+              <div class="sim-traffic-lights" aria-hidden="true">
+                <span class="red"></span>
+                <span class="yellow"></span>
+                <span class="green"></span>
+              </div>
+              <div class="sim-tabs">
+                <button class="sim-tab-btn active" id="tabDesktopBtn" aria-pressed="true">
+                  <i data-lucide="monitor" style="width:10px;height:10px;vertical-align:middle;margin-right:4px;"></i>Desktop OS
+                </button>
+                <button class="sim-tab-btn" id="tabBrowserBtn" aria-pressed="false">
+                  <i data-lucide="globe" style="width:10px;height:10px;vertical-align:middle;margin-right:4px;"></i>Browser Ext
+                </button>
+              </div>
+              <button id="simToggleBtn" aria-label="Pause simulation" style="display:flex;align-items:center;gap:5px;font-family:var(--font-terminal);font-size:9px;text-transform:uppercase;letter-spacing:.12em;color:#4a6670;background:none;border:none;cursor:pointer;">
+                <i data-lucide="pause" style="width:12px;height:12px;"></i>
+              </button>
+            </div>
+
+            <!-- Split body -->
+            <div class="sim-body">
+              <div class="sim-screen-left" id="simLeftScreen"></div>
+              <div class="sim-screen-right">
+                <div style="margin-bottom:14px;">
+                  <div style="font-size:8px;text-transform:uppercase;letter-spacing:.18em;color:#3d6070;margin-bottom:4px;" id="simBadgeMode">WINDOWS UIA + GEMINI BRAIN</div>
+                  <div style="font-size:11px;color:#7e9ea0;line-height:1.55;" id="simGoalText"></div>
+                </div>
+                <div id="simTraceList" style="flex:1;"></div>
+                <div style="border-top:1px solid #1e3450;padding-top:10px;display:flex;align-items:center;justify-content:space-between;">
+                  <span style="font-size:8px;text-transform:uppercase;letter-spacing:.14em;color:#2e4e60;">Session Active</span>
+                  <span class="nim-pulse" style="width:6px;height:6px;border-radius:50%;background:var(--accent-coral);display:inline-block;" aria-hidden="true"></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /hero-grid -->
+
+      <!-- Feature chip bar -->
+      <div class="hero-footer-bar reveal-ready">
+        <div class="feature-chips">
+          <span><i data-lucide="cpu"      style="width:13px;height:13px;opacity:.65;" aria-hidden="true"></i>Windows Actuation</span>
+          <span><i data-lucide="globe"    style="width:13px;height:13px;opacity:.65;" aria-hidden="true"></i>Web Research</span>
+          <span><i data-lucide="mail"     style="width:13px;height:13px;opacity:.65;" aria-hidden="true"></i>Outlook &amp; SMTP</span>
+          <span><i data-lucide="file-cog" style="width:13px;height:13px;opacity:.65;" aria-hidden="true"></i>File Converter</span>
+          <span><i data-lucide="activity" style="width:13px;height:13px;opacity:.65;" aria-hidden="true"></i>Process Diagnostics</span>
+          <span><i data-lucide="calendar" style="width:13px;height:13px;opacity:.65;" aria-hidden="true"></i>Intelligent Scheduler</span>
+        </div>
+        <div style="font-size:10px;color:#7f8d88;text-transform:uppercase;letter-spacing:.12em;">
+          Python 3.11+ · Windows 10/11 · Any Chromium Browser
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================== CAPABILITIES ======================== -->
+  <section class="section section-dark" id="capabilities" aria-labelledby="capabilityHeading">
+    <div class="container">
+      <div class="section-tag">// capabilities</div>
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:28px;">
+        <h2 class="section-title reveal-ready" id="capabilityHeading">
+          One command,<br /><em class="serif">total control.</em>
+        </h2>
+        <p class="section-desc reveal-ready" style="max-width:400px;">
+          NIM AGENT's modular subsystems give you the full stack of intelligent automation — from low-level Windows UIA actuation to high-level semantic web research.
+        </p>
+      </div>
+      <div class="capability-grid">
+        <div class="capability-list" id="capabilityList"></div>
+        <div class="capability-display-card" id="capabilityDisplayCard"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================== SHOWCASE ======================== -->
+  <section class="section" id="showcase" aria-labelledby="showcaseHeading">
+    <div class="container">
+      <div class="showcase-grid">
+        <!-- Image -->
+        <div class="reveal-ready" style="transition-delay:.1s;">
+          <div class="showcase-img-wrap nim-float" style="animation-delay:.8s;">
+            <img src="assets/image_1787633885237.png" alt="NIM AGENT browser side panel and desktop floating HUD" loading="lazy" />
+            <div style="position:absolute;bottom:16px;left:16px;background:rgba(8,17,28,.9);border:1px solid rgba(98,135,126,.35);border-radius:6px;padding:8px 14px;display:flex;align-items:center;gap:10px;backdrop-filter:blur(8px);">
+              <span style="width:7px;height:7px;border-radius:50%;background:var(--accent-coral);" class="nim-pulse" aria-hidden="true"></span>
+              <span style="font-family:var(--font-terminal);font-size:9px;text-transform:uppercase;letter-spacing:.13em;color:#7e9ea0;">Floating HUD · Ctrl+Space</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Copy -->
+        <div class="reveal-ready" style="transition-delay:.2s;">
+          <div class="section-tag">// dual interface</div>
+          <h2 class="section-title" style="margin-bottom:24px;" id="showcaseHeading">
+            Windows HUD &amp; <em class="serif">Browser<br />Side Panel.</em>
+          </h2>
+          <p style="font-family:var(--font-terminal);font-size:13px;color:var(--text-muted);line-height:1.8;margin-bottom:28px;">
+            The always-on <strong>Desktop Floating HUD</strong> gives you one-keystroke access to NIM's full agent stack on Windows with Python support. The <strong>Chrome Extension</strong> runs on any Chromium browser (Chrome, Edge, Brave, Opera) and mirrors live agent state over a local WebSocket bridge.
+          </p>
+
+          <div style="display:flex;flex-direction:column;gap:14px;">
+            <div style="display:flex;align-items:flex-start;gap:14px;">
+              <div style="width:36px;height:36px;border-radius:4px;background:#e9f1ee;border:1px solid #c0d4cd;display:grid;place-items:center;flex-shrink:0;">
+                <i data-lucide="monitor" style="width:16px;height:16px;color:var(--accent-teal);"></i>
+              </div>
+              <div>
+                <div style="font-family:var(--font-terminal);font-weight:400;font-size:13px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px;">Windows Desktop HUD (Python 3.11+)</div>
+                <div style="font-family:var(--font-terminal);font-size:11px;color:var(--text-muted);line-height:1.7;">Ctrl+Space to summon. Acrylic Tkinter overlay with SSE streaming and Edge-TTS voice. ESC to cancel instantly.</div>
+              </div>
+            </div>
+            <div style="display:flex;align-items:flex-start;gap:14px;">
+              <div style="width:36px;height:36px;border-radius:4px;background:#e9f1ee;border:1px solid #c0d4cd;display:grid;place-items:center;flex-shrink:0;">
+                <i data-lucide="globe" style="width:16px;height:16px;color:var(--accent-teal);"></i>
+              </div>
+              <div>
+                <div style="font-family:var(--font-terminal);font-weight:400;font-size:13px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px;">Chrome Extension (Any Browser)</div>
+                <div style="font-family:var(--font-terminal);font-size:11px;color:var(--text-muted);line-height:1.7;">Alt+Shift+N to open. Works on Chrome, Edge, Brave. Shares context with desktop agent over ws://127.0.0.1:7432.</div>
+              </div>
+            </div>
+            <div style="display:flex;align-items:flex-start;gap:14px;">
+              <div style="width:36px;height:36px;border-radius:4px;background:#e9f1ee;border:1px solid #c0d4cd;display:grid;place-items:center;flex-shrink:0;">
+                <i data-lucide="database" style="width:16px;height:16px;color:var(--accent-teal);"></i>
+              </div>
+              <div>
+                <div style="font-family:var(--font-terminal);font-weight:400;font-size:13px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px;">Local SQLite Memory &amp; Security</div>
+                <div style="font-family:var(--font-terminal);font-size:11px;color:var(--text-muted);line-height:1.7;">SQLite-backed episodic memory with atomic rollback and zero cloud telemetry.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================== METHOD ======================== -->
+  <section class="section section-paper" id="method" aria-labelledby="methodHeading">
+    <div class="container">
+      <div class="section-tag">// how it works</div>
+      <h2 class="section-title reveal-ready" id="methodHeading">
+        The agentic <em class="serif">loop.</em>
+      </h2>
+
+      <div class="steps-grid">
+        <div class="step-card reveal-ready" style="transition-delay:.05s;">
+          <span class="step-number">01 — name_outcome()</span>
+          <h3>Name the outcome</h3>
+          <p>Speak or type a goal in plain language. NIM parses intent, decomposes it into a task graph, and routes it to the correct subsystem — OS, browser, email, files, or scheduler.</p>
+        </div>
+        <div class="step-card reveal-ready" style="transition-delay:.14s;">
+          <span class="step-number">02 — watch_reason()</span>
+          <h3>Watch it reason</h3>
+          <p>The streaming agentic loop emits live reasoning steps to the HUD. Each tool call is logged with input, output, and perceptual verification — no black boxes.</p>
+        </div>
+        <div class="step-card reveal-ready" style="transition-delay:.23s;">
+          <span class="step-number">03 — keep_boundary()</span>
+          <h3>Keep the boundary</h3>
+          <p>SecurityGuard classifies every action for risk. Destructive, irreversible, and financially significant operations require explicit confirmation or are blocked by policy.</p>
+        </div>
+        <div class="step-card reveal-ready" style="transition-delay:.32s;">
+          <span class="step-number">04 — take_result()</span>
+          <h3>Take the result</h3>
+          <p>Goal reached. Artifacts are saved, memory is updated, and a spoken summary is delivered. Press ESC at any moment to abort, stop streams, and roll back changes.</p>
+        </div>
+      </div>
+
+      <!-- Agentic loop diagram -->
+      <div class="loop-diagram reveal-ready" style="transition-delay:.2s;">
+        <div class="loop-inner">
+          <div class="loop-node">
+            <div class="lbl" style="color:var(--accent-coral);">OBSERVE</div>
+            <div class="sub">Windows UIA + DOM</div>
+          </div>
+          <i data-lucide="arrow-right" style="width:14px;height:14px;color:#8b9fa1;flex-shrink:0;" aria-hidden="true"></i>
+          <div class="loop-node">
+            <div class="lbl" style="color:var(--accent-teal);">PLAN</div>
+            <div class="sub">Gemini / NIM + Memory</div>
+          </div>
+          <i data-lucide="arrow-right" style="width:14px;height:14px;color:#8b9fa1;flex-shrink:0;" aria-hidden="true"></i>
+          <div class="loop-node">
+            <div class="lbl" style="color:var(--accent-amber);">ACT</div>
+            <div class="sub">Win32 + Tools + APIs</div>
+          </div>
+          <i data-lucide="arrow-right" style="width:14px;height:14px;color:#8b9fa1;flex-shrink:0;" aria-hidden="true"></i>
+          <div class="loop-node">
+            <div class="lbl" style="color:var(--accent-sage);">VERIFY</div>
+            <div class="sub">Vision dHash Diff</div>
+          </div>
+          <i data-lucide="rotate-cw" style="width:13px;height:13px;color:#b9cfc4;margin-left:6px;" aria-hidden="true" title="Loops back to OBSERVE"></i>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================== ARCHITECTURE ======================== -->
+  <section class="section" id="architecture" aria-labelledby="archHeading">
+    <div class="container">
+      <div class="section-tag">// architecture</div>
+      <h2 class="section-title reveal-ready" id="archHeading" style="margin-bottom:52px;">
+        Everything local,<br /><em class="serif">nothing leaks.</em>
+      </h2>
+
+      <div class="topology-card reveal-ready">
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px;align-items:start;">
+
+          <!-- Browser node -->
+          <div class="topo-node">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+              <div style="width:34px;height:34px;border-radius:4px;background:#e2ece8;display:grid;place-items:center;">
+                <i data-lucide="chrome" style="width:17px;height:17px;color:var(--accent-teal);"></i>
+              </div>
+              <div class="topo-node-label">Any Browser</div>
+            </div>
+            <ul class="topo-list">
+              <li><i data-lucide="check" style="width:12px;height:12px;color:#82a89d;" aria-hidden="true"></i>Chrome, Brave, Edge</li>
+              <li><i data-lucide="check" style="width:12px;height:12px;color:#82a89d;" aria-hidden="true"></i>Side Panel Copilot</li>
+              <li><i data-lucide="check" style="width:12px;height:12px;color:#82a89d;" aria-hidden="true"></i>DOM Tree Inspector</li>
+              <li><i data-lucide="check" style="width:12px;height:12px;color:#82a89d;" aria-hidden="true"></i>Multi-Tab Manager</li>
+            </ul>
+            <div style="margin-top:14px;padding-top:10px;border-top:1px solid #d1dcd7;font-family:var(--font-terminal);font-size:9px;text-transform:uppercase;letter-spacing:.14em;color:#91a8a3;">
+              ws://127.0.0.1:7432
+            </div>
+          </div>
+
+          <!-- Desktop Runtime (center) -->
+          <div class="topo-node" style="background:var(--bg-dark);color:#f4f2ec;border-color:#2a4260;position:relative;transform:scale(1.04);">
+            <div style="position:absolute;top:-10px;left:50%;transform:translateX(-50%);background:var(--accent-coral);color:#10203a;font-family:var(--font-terminal);font-size:8px;text-transform:uppercase;letter-spacing:.15em;padding:3px 12px;border-radius:999px;white-space:nowrap;">Windows Core (Python)</div>
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;margin-top:8px;">
+              <div style="width:34px;height:34px;border-radius:4px;background:rgba(223,107,72,.18);display:grid;place-items:center;">
+                <i data-lucide="cpu" style="width:17px;height:17px;color:var(--accent-coral);"></i>
+              </div>
+              <div style="font-family:var(--font-terminal);font-size:9px;text-transform:uppercase;letter-spacing:.15em;color:#a8c8c1;">Windows Runtime</div>
+            </div>
+            <ul class="topo-list" style="color:#aebec0;">
+              <li><i data-lucide="check" style="width:12px;height:12px;color:#a8c8c1;" aria-hidden="true"></i>Agent Loop (Python 3.11+)</li>
+              <li><i data-lucide="check" style="width:12px;height:12px;color:#a8c8c1;" aria-hidden="true"></i>UIA + Vision Actuation</li>
+              <li><i data-lucide="check" style="width:12px;height:12px;color:#a8c8c1;" aria-hidden="true"></i>SQLite Episodic Memory</li>
+              <li><i data-lucide="check" style="width:12px;height:12px;color:#a8c8c1;" aria-hidden="true"></i>Outlook COM &amp; SMTP</li>
+              <li><i data-lucide="check" style="width:12px;height:12px;color:#a8c8c1;" aria-hidden="true"></i>File &amp; Archive Converter</li>
+              <li><i data-lucide="check" style="width:12px;height:12px;color:#a8c8c1;" aria-hidden="true"></i>Process Monitor &amp; Restorer</li>
+              <li><i data-lucide="shield-check" style="width:12px;height:12px;color:var(--accent-coral);" aria-hidden="true"></i>SecurityGuard Protection</li>
+            </ul>
+            <div style="margin-top:14px;padding-top:10px;border-top:1px solid #2a4260;font-family:var(--font-terminal);font-size:9px;text-transform:uppercase;letter-spacing:.14em;color:#4a7080;">FastAPI · Edge-TTS · Tkinter HUD</div>
+          </div>
+
+          <!-- Providers node -->
+          <div class="topo-node">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+              <div style="width:34px;height:34px;border-radius:4px;background:#e2ece8;display:grid;place-items:center;">
+                <i data-lucide="sparkles" style="width:17px;height:17px;color:var(--accent-amber);"></i>
+              </div>
+              <div class="topo-node-label">LLM Providers</div>
+            </div>
+            <ul class="topo-list">
+              <li><i data-lucide="check" style="width:12px;height:12px;color:#82a89d;" aria-hidden="true"></i><strong style="color:var(--accent-coral);">Gemini Flash (Default)</strong></li>
+              <li><i data-lucide="check" style="width:12px;height:12px;color:#82a89d;" aria-hidden="true"></i>NVIDIA NIM Vision (Llama-3.2)</li>
+              <li><i data-lucide="check" style="width:12px;height:12px;color:#82a89d;" aria-hidden="true"></i>OpenAI Compatible</li>
+              <li><i data-lucide="check" style="width:12px;height:12px;color:#82a89d;" aria-hidden="true"></i>Ollama (Local / Offline)</li>
+            </ul>
+            <div style="margin-top:14px;padding-top:10px;border-top:1px solid #d1dcd7;font-family:var(--font-terminal);font-size:9px;text-transform:uppercase;letter-spacing:.14em;color:#91a8a3;">Windows Credential Vault</div>
+          </div>
+        </div>
+
+        <!-- Divider label -->
+        <div style="display:flex;justify-content:center;align-items:center;gap:0;margin-top:22px;">
+          <div style="flex:1;height:1px;background:linear-gradient(to right,transparent,#adc4c0);"></div>
+          <div style="display:flex;align-items:center;gap:10px;padding:0 18px;font-family:var(--font-terminal);font-size:9px;text-transform:uppercase;letter-spacing:.14em;color:#91a8a3;">
+            <i data-lucide="lock" style="width:12px;height:12px;" aria-hidden="true"></i>
+            All traffic local — zero telemetry or cloud relay
+          </div>
+          <div style="flex:1;height:1px;background:linear-gradient(to left,transparent,#adc4c0);"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================== PROVIDERS ======================== -->
+  <section class="section section-paper" id="providers" aria-labelledby="providersHeading">
+    <div class="container">
+      <div class="section-tag">// bring_your_model()</div>
+      <h2 class="section-title reveal-ready" id="providersHeading">
+        Your model,<br /><em class="serif">your privacy.</em>
+      </h2>
+      <div class="providers-grid">
+        <div>
+          <p style="font-family:var(--font-terminal);font-size:12px;color:var(--text-muted);margin-bottom:24px;line-height:1.8;">
+            NIM AGENT works with any OpenAI-compatible endpoint. API keys are stored exclusively in your Windows Credential Manager — never written to disk in plaintext.
+          </p>
+          <div id="providerList"></div>
+        </div>
+        <div style="background:var(--bg-dark);border-radius:8px;padding:32px;color:#f4f2ec;" id="providerCard"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================== SAFETY ======================== -->
+  <section class="section" id="safety" aria-labelledby="safetyHeading">
+    <div class="container">
+      <div class="section-tag">// safety &amp; handbrake</div>
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:28px;margin-bottom:10px;">
+        <h2 class="section-title reveal-ready" id="safetyHeading">
+          Power with a<br /><em class="serif">kill-switch.</em>
+        </h2>
+        <p class="section-desc reveal-ready">
+          Every powerful action is matched by an equally powerful safeguard. No silent changes. No irreversible surprises.
+        </p>
+      </div>
+      <div class="safety-grid">
+        <div class="safety-card reveal-ready" style="transition-delay:.05s;">
+          <i data-lucide="bell-off" style="width:22px;height:22px;color:var(--accent-coral);" aria-hidden="true"></i>
+          <h3>// No silent actions</h3>
+          <p>Every tool call — file write, process kill, email send — is surfaced in the HUD trace before execution. You know what's happening at every step.</p>
+        </div>
+        <div class="safety-card reveal-ready" style="transition-delay:.1s;">
+          <i data-lucide="hand" style="width:22px;height:22px;color:var(--accent-amber);" aria-hidden="true"></i>
+          <h3>// Approval gates</h3>
+          <p>SecurityGuard flags high-risk operations — mass email sends, system process termination, irreversible file deletions — requiring explicit user confirmation.</p>
+        </div>
+        <div class="safety-card reveal-ready" style="transition-delay:.15s;">
+          <i data-lucide="lock" style="width:22px;height:22px;color:var(--accent-teal);" aria-hidden="true"></i>
+          <h3>// Local credentials only</h3>
+          <p>API keys are stored in Windows Credential Manager. Never written to plaintext. Never transmitted to third-party tracking servers.</p>
+        </div>
+        <div class="safety-card reveal-ready" style="transition-delay:.2s;">
+          <i data-lucide="rotate-ccw" style="width:22px;height:22px;color:var(--accent-sage);" aria-hidden="true"></i>
+          <h3>// Atomic rollback</h3>
+          <p>SnapshotManager checkpoints every file before modification and every process state before termination. One command fully undoes any agent-made change.</p>
+        </div>
+        <div class="safety-card reveal-ready" style="transition-delay:.25s;">
+          <i data-lucide="keyboard" style="width:22px;height:22px;color:var(--accent-coral);" aria-hidden="true"></i>
+          <h3>// Global ESC kill-switch</h3>
+          <p>Press ESC at any moment to immediately sever the LLM stream, abort in-flight tool execution, stop TTS audio, and reset the HUD to idle — zero latency.</p>
+        </div>
+        <div class="safety-card reveal-ready" style="transition-delay:.3s;">
+          <i data-lucide="shield" style="width:22px;height:22px;color:var(--accent-amber);" aria-hidden="true"></i>
+          <h3>// Process shield</h3>
+          <p>Critical system processes (csrss.exe, wininit.exe, svchost, kernel threads) are permanently protected from inspection, modification, or termination.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================== DOWNLOAD ======================== -->
+  <section class="download-section" id="download" aria-labelledby="downloadHeading">
+    <div class="container">
+      <div class="download-grid">
+        <div>
+          <div style="font-family:var(--font-terminal);font-size:10px;text-transform:uppercase;letter-spacing:.2em;color:rgba(16,32,58,.55);margin-bottom:18px;">// get_started()</div>
+          <h2 class="section-title reveal-ready" id="downloadHeading" style="font-size:clamp(2.4rem,4.5vw,4.4rem);">
+            Run it<br /><em class="serif" style="color:rgba(16,32,58,.5);">right now.</em>
+          </h2>
+          <p style="font-family:var(--font-terminal);font-size:12px;color:rgba(16,32,58,.68);line-height:1.8;max-width:400px;margin:18px 0 28px;">
+            NIM AGENT runs entirely on your Windows PC. No cloud account, no telemetry, no subscription. Clone the repository and launch in under two minutes.
+          </p>
+          <div style="display:flex;flex-wrap:wrap;gap:12px;">
+            <a href="https://github.com/mohammedila812-NIM/NIM_AGENT" target="_blank" rel="noopener" class="btn-secondary" style="background:rgba(16,27,44,.82);">
+              <i data-lucide="github" style="width:15px;height:15px;"></i>GitHub Repo
+            </a>
+            <a href="https://github.com/mohammedila812-NIM/NIM_AGENT/releases" target="_blank" rel="noopener" class="btn-primary">
+              <i data-lucide="download" style="width:15px;height:15px;"></i>Releases
+            </a>
+            <a href="https://instagram.com/mahamadali210" target="_blank" rel="noopener" class="btn-outline" style="border-color:rgba(16,32,58,.3);color:var(--bg-dark);">
+              <i data-lucide="instagram" style="width:14px;height:14px;"></i>@mahamadali210
+            </a>
+          </div>
+          <div style="margin-top:26px;display:flex;align-items:center;gap:8px;font-family:var(--font-terminal);font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:rgba(16,32,58,.45);">
+            <i data-lucide="cpu" style="width:13px;height:13px;" aria-hidden="true"></i>
+            Windows 10/11 · Python 3.11+ · Chrome / Brave / Edge
+          </div>
+        </div>
+
+        <!-- Install guides -->
+        <div>
+          <div class="install-guide-box">
+            <div style="font-family:var(--font-terminal);font-size:9px;text-transform:uppercase;letter-spacing:.18em;color:rgba(16,32,58,.5);margin-bottom:4px;">
+              <i data-lucide="monitor" style="width:13px;height:13px;vertical-align:middle;" aria-hidden="true"></i>
+              Windows Desktop Agent (Python 3.11+)
+            </div>
+            <ol>
+              <li>
+                <span class="num">01</span>
+                <code style="font-size:11px;">git clone https://github.com/mohammedila812-NIM/NIM_AGENT &amp;&amp; cd NIM_AGENT/desktop</code>
+              </li>
+              <li>
+                <span class="num">02</span>
+                <code style="font-size:11px;">pip install -r requirements.txt</code>
+              </li>
+              <li>
+                <span class="num">03</span>
+                <span>Configure API key in Windows Credential Store, then run: <code style="font-size:11px;">python -m src.main</code></span>
+              </li>
+              <li>
+                <span class="num">04</span>
+                <span>Press <kbd style="background:rgba(16,27,44,.15);padding:1px 6px;border-radius:3px;font-size:11px;border:1px solid rgba(16,27,44,.2);">Ctrl+Space</kbd> to summon the floating HUD.</span>
+              </li>
+            </ol>
+          </div>
+
+          <div class="install-guide-box" style="margin-top:18px;">
+            <div style="font-family:var(--font-terminal);font-size:9px;text-transform:uppercase;letter-spacing:.18em;color:rgba(16,32,58,.5);margin-bottom:4px;">
+              <i data-lucide="puzzle" style="width:13px;height:13px;vertical-align:middle;" aria-hidden="true"></i>
+              Browser Extension (Chrome, Brave, Edge)
+            </div>
+            <ol>
+              <li><span class="num">01</span><span>Open Browser → <code style="font-size:11px;">chrome://extensions</code> → Enable Developer Mode</span></li>
+              <li><span class="num">02</span><span>Click <strong>Load unpacked</strong> → Select the <code style="font-size:11px;">extension/</code> directory</span></li>
+              <li><span class="num">03</span><span>Press <kbd style="background:rgba(16,27,44,.15);padding:1px 6px;border-radius:3px;font-size:11px;border:1px solid rgba(16,27,44,.2);">Alt+Shift+N</kbd> on any page to open the Side Panel</span></li>
+            </ol>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================== FOOTER ======================== -->
+  <footer class="footer" role="contentinfo">
+    <div class="container footer-inner">
+      <div class="footer-top">
+        <div>
+          <a href="#" class="logo-brand" style="color:#f4f2ec;">
+            <div class="logo-icon" aria-hidden="true"><span></span></div>
+            <span>NIM_AGENT</span>
+          </a>
+          <p style="margin-top:10px;font-family:var(--font-terminal);font-size:11px;color:#4a6670;max-width:340px;line-height:1.75;">
+            Autonomous AI for Windows &amp; Any Browser.<br />
+            Local-first · Privacy-respecting · Open Source.<br />
+            Created by <a href="https://instagram.com/mahamadali210" target="_blank" style="color:#8fb7ab;text-decoration:none;">@mahamadali210</a>
+          </p>
+        </div>
+        <ul class="footer-links">
+          <li><a href="#capabilities">Capabilities</a></li>
+          <li><a href="#method">Method</a></li>
+          <li><a href="#architecture">Architecture</a></li>
+          <li><a href="#safety">Safety</a></li>
+          <li><a href="https://github.com/mohammedila812-NIM/NIM_AGENT" target="_blank" rel="noopener">GitHub</a></li>
+          <li><a href="https://instagram.com/mahamadali210" target="_blank" rel="noopener">Instagram</a></li>
+        </ul>
+      </div>
+      <div class="footer-bottom">
+        <span>© 2026 NIM_AGENT — Windows Desktop &amp; Browser Intelligence</span>
+        <span>
+          <a href="https://github.com/mohammedila812-NIM/NIM_AGENT" target="_blank" style="color:#8fb7ab;text-decoration:none;margin-right:12px;">GitHub</a>
+          <a href="https://instagram.com/mahamadali210" target="_blank" style="color:#8fb7ab;text-decoration:none;">@mahamadali210</a>
+        </span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
