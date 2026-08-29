@@ -81,19 +81,37 @@ async def run_cli():
     )
     await trigger_coordinator.start_all()
 
+    from src.voice.tts import VoiceEngine
+    from src.voice.stt import SpeechToTextEngine
+    from src.voice.barge_in import BargeInController
+
+    voice_engine = VoiceEngine()
+    stt_engine = SpeechToTextEngine()
+
+    def on_voice_command_received(transcript: str):
+        console.print(f"\n[bold cyan]🎙️ Spoken Command Recognized:[/bold cyan] {transcript}")
+        main_loop.call_soon_threadsafe(lambda: asyncio.create_task(execute_task_pipeline(transcript)))
+
+    def on_voice_amplitude(level: float):
+        if active_hud:
+            active_hud.set_amplitude(level)
+
+    barge_in_controller = BargeInController(
+        voice_engine=voice_engine,
+        stt_engine=stt_engine,
+        on_cancel_task=lambda: main_loop.call_soon_threadsafe(cancel_active_task),
+        on_voice_command=on_voice_command_received,
+        on_amplitude=on_voice_amplitude,
+    )
+
     def cancel_active_task():
         """Immediately aborts in-flight task, stops LLM generation, and halts voice TTS."""
         orchestrator.cancel_current_task()
-        try:
-            from src.voice.tts import VoiceEngine
-            VoiceEngine().stop()
-        except Exception:
-            pass
-        console.print("\n[bold red]⛔ Task cancelled by user via Escape key.[/bold red]")
+        voice_engine.stop_speaking()
+        console.print("\n[bold red]⛔ Task cancelled by operator (Escape / Barge-In).[/bold red]")
         if active_hud:
             active_hud.set_mode("idle")
-            active_hud.update_thought("⛔ Task cancelled by user (Escape).")
-            active_hud.update_badges(["Cancelled", "Idle"])
+            active_hud.append_log("⛔ Task cancelled by operator (Escape / Barge-In).")
 
     # Global keyboard listener for ESC key
     try:
@@ -105,7 +123,7 @@ async def run_cli():
         esc_listener.daemon = True
         esc_listener.start()
     except Exception as e:
-        logger.debug("Could not start global pynput keyboard listener: %s", e)
+        pass
 
     async def execute_task_pipeline(goal: str):
         if not goal or not goal.strip():
@@ -278,14 +296,49 @@ async def run_cli():
                     console.print("[info]HUD is already active on screen.[/info]")
                 continue
 
+            elif user_input.startswith("/mic"):
+                parts = user_input.split(" ", 1)
+                subcmd = parts[1].strip().lower() if len(parts) > 1 else ("off" if barge_in_controller.is_listening else "on")
+                if subcmd == "on":
+                    barge_in_controller.enable_voice_listener()
+                    console.print("[success]🎙️ Ambient Voice Listener & True Barge-In: [bold]ACTIVATED[/bold][/success]")
+                    console.print("[dim]Speak naturally at any time. Speak during audio playback to barge-in instantly.[/dim]")
+                    if active_hud:
+                        active_hud.set_mode("listening")
+                else:
+                    barge_in_controller.disable_voice_listener()
+                    console.print("[info]🔇 Ambient Voice Listener: [bold]MUTED[/bold][/info]")
+                    if active_hud:
+                        active_hud.set_mode("idle")
+                continue
+
+            elif user_input.startswith("/persona ") or user_input.startswith("/voice_persona "):
+                parts = user_input.split(" ", 1)
+                p_name = parts[1].strip().lower()
+                voice_engine.set_persona(p_name)
+                console.print(f"[success]✓ Active neural voice persona set to: [bold]{p_name}[/bold][/success]")
+                continue
+
+            elif user_input == "/listen":
+                console.print("[cyan]🎙️ Listening for speech command... Speak now:[/cyan]")
+                if active_hud:
+                    active_hud.set_mode("listening")
+                transcript = await asyncio.to_thread(stt_engine.listen_once, 6.0, 12.0)
+                if transcript:
+                    console.print(f"[success]🗣️ Transcribed:[/success] {transcript}")
+                    await execute_task_pipeline(transcript)
+                else:
+                    console.print("[warning]No intelligible speech detected.[/warning]")
+                    if active_hud:
+                        active_hud.set_mode("idle")
+                continue
+
             elif user_input.startswith("/voice ") or user_input.startswith("/speak "):
                 parts = user_input.split(" ", 1)
                 if len(parts) == 2:
                     speech_text = parts[1].strip()
-                    from src.voice.tts import VoiceEngine
-                    ve = VoiceEngine()
                     console.print(f"[info]🎙️ Speaking: '{speech_text}'...[/info]")
-                    await ve.speak(speech_text)
+                    await voice_engine.speak(speech_text)
                 continue
 
             elif user_input.startswith("/vision_provider "):

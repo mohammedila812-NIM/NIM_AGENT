@@ -205,7 +205,7 @@ Every send/reply routes through SecurityGuard with elevated scrutiny for:
 
 ### 6. 🎙️ Privacy-First Speech-to-Text with True Barge-In
 
-**Status:** ❌ Missing (TTS output exists; STT input does not)
+**Status:** ✅ Built (`src/voice/tts.py`, `src/voice/vad.py`, `src/voice/stt.py`, `src/voice/barge_in.py`, `src/tools/voice_tools.py`)
 
 #### Design Philosophy
 Local Whisper is already a privacy differentiator vs. cloud assistants. Push further:

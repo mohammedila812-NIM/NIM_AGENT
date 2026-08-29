@@ -94,7 +94,12 @@ from src.tools.converter_tools import (
     ExtractArchiveTool,
     RenderDocumentPreviewTool
 )
-from src.tools.voice_tools import SpeakTextTool
+from src.tools.voice_tools import (
+    SpeakTextTool,
+    ListenVoiceTool,
+    ToggleVoiceInputTool,
+    SetVoicePersonaTool
+)
 from src.bridge.proxy_tools import BrowserResearchTool
 from .prompts import SYSTEM_PROMPT, INTENT_CLASSIFICATION_PROMPT
 from .state import TaskState, AgentStep, TaskStatus
@@ -193,6 +198,9 @@ class AgentOrchestrator:
             ExtractArchiveTool(),
             RenderDocumentPreviewTool(),
             SpeakTextTool(),
+            ListenVoiceTool(),
+            ToggleVoiceInputTool(),
+            SetVoicePersonaTool(),
             BrowserResearchTool(),
         ]
         for t in tools:
