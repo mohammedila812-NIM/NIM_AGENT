@@ -27,13 +27,14 @@ from src.llm.providers import get_provider_preset
 
 logger = logging.getLogger(__name__)
 
-# Default vision provider & model (overrideable via /vision_provider command or config)
-DEFAULT_VISION_PROVIDER = "nim-cloud"
-DEFAULT_VISION_MODEL = "nvidia/llama-3.2-90b-vision-instruct"
+# Default vision provider & model (defaults to active brain provider or gemini)
+DEFAULT_VISION_PROVIDER = "gemini"
+DEFAULT_VISION_MODEL = "models/gemini-flash-lite-latest"
 
 # Fallback vision providers in priority order if primary is unavailable
 VISION_PROVIDER_PRIORITY = [
-    ("nim-cloud",  "nvidia/llama-3.2-90b-vision-instruct"),
+    ("gemini",     "models/gemini-flash-lite-latest"),
+    ("nim-cloud",  "meta/llama-3.2-90b-vision-instruct"),
     ("openai",     "gpt-4o"),
     ("ollama",     "llava:13b"),
 ]

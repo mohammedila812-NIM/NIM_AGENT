@@ -325,15 +325,14 @@ class VisionDescribeImageTool(BaseTool):
                 }
             )
         else:
+            error_msg = result.get("error", "Vision model returned empty response.")
             return ToolResult(
                 success=False,
-                data={
-                    "error": result.get("error"),
-                    "provider": result.get("provider"),
-                    "model": result.get("model"),
-                    "vision_status": status,
-                    "hint": f"Configure vision provider: /key {status.get('provider')} <your_api_key>",
-                    "image_path": img_path,
-                }
+                data=None,
+                error=(
+                    f"vision_describe_image failed [{result.get('provider')}/{result.get('model')}]: "
+                    f"{error_msg} | "
+                    f"Fix: run `/vision_provider gemini models/gemini-flash-lite-latest` to use Gemini vision."
+                )
             )
 
