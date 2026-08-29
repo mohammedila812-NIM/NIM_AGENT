@@ -1,5 +1,6 @@
 # NIM AGENT — Windows Desktop Automation & Browser Intelligence
 
+[![Website](https://img.shields.io/badge/Website-Live%20Demo-df6b48?style=flat-square&logo=google-chrome)](https://mohammedila812-nim.github.io/NIM_AGENT/)
 [![GitHub release](https://img.shields.io/github/v/release/mohammedila812-NIM/NIM_AGENT?color=df6b48&style=flat-square)](https://github.com/mohammedila812-NIM/NIM_AGENT/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078d4?style=flat-square&logo=windows)](https://github.com/mohammedila812-NIM/NIM_AGENT)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue?style=flat-square&logo=python)](https://python.org)
