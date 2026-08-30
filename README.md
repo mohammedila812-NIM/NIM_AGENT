@@ -22,11 +22,12 @@
 - **Memory-Aware Email Integration:** Direct Microsoft Outlook COM & SMTP/IMAP integration, automated follow-up tracking, sensitive data redactor, and high-risk mass-send approvals.
 - **Adaptive Process & Resource Monitor:** SQLite per-app baseline learning, resource anomaly scoring, open socket/file handle diagnostics, and safe undoable process kill with automatic window state restorer.
 - **Vision-Verified File Converter:** Bidirectional conversion across XLSX, CSV, DOCX, Markdown, PDF, images, and archives (`zip`, `tar.gz`) with closed-loop perceptual layout spot-checks.
+- **Privacy-First Voice Control:** Local microphone VAD, speech-to-text command capture, neural TTS personas, and true barge-in so spoken commands can interrupt active speech and running tasks.
 - **Global `ESC` Kill-Switch:** Press `ESC` at any time to instantly sever the LLM SSE stream, abort in-flight tool execution, silence TTS voice, and reset the HUD to idle.
 - **Floating Acrylic HUD:** Minimalist translucent overlay (`Ctrl+Space`), live streaming reasoning steps, proactive suggestion cards, and Edge-TTS neural speech (`JARVIS` / `FRIDAY`).
 - **Default LLM Routing:** Built-in automatic 35s rate-limit cooldown recovery for **Gemini Flash** (primary brain) and **NVIDIA NIM Vision** (visual coordinate grounding).
 
-### 🌐 Browser Extension Copilot (`extension/`)
+### 🌐 Browser Extension Copilot (`src/entrypoints/`)
 - **Manifest V3 Side Panel (`Alt+Shift+N`):** Works across Chrome, Microsoft Edge, Brave, and Opera.
 - **DOM & Tab Inspector:** Semantic page parsing, visual bounding boxes, form auto-filling, table scraper, and cross-tab multi-hop web research.
 - **Local WebSocket Bridge (`ws://127.0.0.1:7432`):** Seamless real-time context sharing between browser actions and desktop OS tools.
@@ -75,7 +76,7 @@ git clone https://github.com/mohammedila812-NIM/NIM_AGENT.git
 cd NIM_AGENT/desktop
 
 # Install dependencies
-pip install -r requirements.txt
+pip install -e .
 
 # Run the desktop agent & HUD
 python -m src.main
@@ -124,7 +125,8 @@ pytest tests/ -v
 
 ## 📦 Releases
 
-- **[Latest Release (v1.0.0)](https://github.com/mohammedila812-NIM/NIM_AGENT/releases):** Full Windows Desktop Automation Suite, Actuation, Process Monitor, Converter, Scheduler, Outlook, Global ESC Kill-Switch, and Chrome Extension Bridge.
+- **[Latest Release (v1.1.0)](https://github.com/mohammedila812-NIM/NIM_AGENT/releases):** Adds privacy-first voice input, true TTS barge-in, refreshed desktop HUD telemetry, Gemini-first vision fallback, and 60 passing desktop subsystem tests.
+- **v1.0.0:** Full Windows Desktop Automation Suite, Actuation, Process Monitor, Converter, Scheduler, Outlook, Global ESC Kill-Switch, and Chrome Extension Bridge.
 - **[Changelog](CHANGELOG.md):** Complete chronological log of features and fixes.
 
 ---

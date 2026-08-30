@@ -1,5 +1,7 @@
 # NIM Agent user guide
 
+Current release: **v1.1.0**
+
 ## What NIM Agent does
 
 NIM Agent is an AI browser side-panel extension. You can ask it to research pages, extract information, navigate websites, and help carry out browser tasks. It works with your own model-provider account and API key.
@@ -21,6 +23,24 @@ NIM Agent is an AI browser side-panel extension. You can ask it to research page
 
 For Firefox development builds, run `npm run build:firefox` and follow Firefox's temporary-extension loading flow.
 
+## Install the Windows desktop agent
+
+1. Install Python 3.11 or later.
+2. In the desktop project folder, install the package:
+
+   ```powershell
+   cd desktop
+   pip install -e .
+   ```
+
+3. Start the desktop runtime and HUD:
+
+   ```powershell
+   python -m src.main
+   ```
+
+4. Press `Ctrl+Space` to toggle the floating HUD. Press `ESC` to cancel an active task, stop speech playback, and return the agent to idle.
+
 ## Configure a provider
 
 1. Open the extension's **Settings** tab.
@@ -39,6 +59,15 @@ For a self-hosted service, use the appropriate local endpoint and ensure it is r
 5. Review findings in **Research Notes** or the final chat response.
 
 Use the vision option only when a screenshot is useful. The extension is designed to read the page DOM first.
+
+## Voice controls
+
+NIM Agent v1.1.0 adds local voice activity detection, speech-to-text command capture, and neural TTS playback with barge-in cancellation.
+
+- Use `/mic on` and `/mic off` to control ambient microphone listening.
+- Use `/listen` for one spoken command.
+- Use `/voice <text>` to speak text through the active persona.
+- Use `/persona jarvis`, `/persona friday`, `/persona christopher`, `/persona jenny`, `/persona sonia`, or `/persona ryan` to switch voices.
 
 ## Safety and data handling
 

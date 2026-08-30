@@ -143,7 +143,7 @@ class JarvisHUDOverlay:
         self.reactor_canvas.pack(side="left", padx=(0, 8))
 
         title_lbl = ctk.CTkLabel(
-            brand_box, text="NIM_AGENT_OS // v1.0_STABLE",
+            brand_box, text="NIM_AGENT_OS // v1.1_STABLE",
             font=(THEME["font_mono"], 12, "bold"), text_color=THEME["text_primary"],
         )
         title_lbl.pack(side="left", padx=(0, 12))

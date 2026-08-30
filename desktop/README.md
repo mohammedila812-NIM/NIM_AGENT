@@ -1,5 +1,7 @@
 # 🤖 NIM JARVIS Desktop
 
+Current release: **v1.1.0**
+
 **Native OS AI Automation Partner for the NIM Agent Browser Extension.**
 
 NIM JARVIS Desktop is an autonomous desktop AI agent that executes native OS workflows, file transformations, document authoring, system tasks, and connects seamlessly to the NIM Agent browser extension via a local WebSocket bridge.
@@ -31,6 +33,11 @@ NIM JARVIS Desktop is an autonomous desktop AI agent that executes native OS wor
    - Sensitive pattern redaction (SSN, credit cards, credentials) prior to cloud LLM transmission.
    - Append-only audit logger at `~/.nim_jarvis/logs/audit.jsonl`.
 
+7. **Voice & Speech Control**:
+   - Local voice activity detection for ambient microphone listening.
+   - Speech-to-text command capture for `/listen` and microphone-driven goals.
+   - Edge-TTS neural voice personas with low-latency `pygame` playback and barge-in cancellation.
+
 ---
 
 ## 🚀 Quick Start
@@ -39,7 +46,8 @@ NIM JARVIS Desktop is an autonomous desktop AI agent that executes native OS wor
 
 ```bash
 cd desktop
-python src/main.py
+pip install -e .
+python -m src.main
 ```
 
 ### 2. Configure Your LLM Provider Key
@@ -59,6 +67,9 @@ Inside the CLI:
 /keys
 /tools
 /bridge
+/mic on
+/listen
+/persona friday
 ```
 
 ### 4. Run Any Goal

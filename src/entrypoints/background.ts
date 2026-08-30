@@ -46,7 +46,7 @@ function startBridge(url: string, authToken: string) {
       console.log('[Bridge] WebSocket connected, sending auth...');
       bridgeWs?.send(JSON.stringify({
         type: 'auth_request',
-        payload: { client: 'nim-agent-browser-extension', version: '1.0.0' },
+        payload: { client: 'nim-agent-browser-extension', version: '1.1.0' },
         auth_token: authToken,
       }));
     };

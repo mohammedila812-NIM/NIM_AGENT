@@ -1,7 +1,7 @@
 import asyncio
 import numpy as np
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from src.voice.tts import VoiceEngine
 from src.voice.vad import VADEngine
@@ -27,8 +27,10 @@ async def test_voice_engine_tts_and_barge_in():
     assert engine.voice_name == "friday"
     assert "AriaNeural" in engine.voice
 
-    # Mock audio playback
-    with patch.object(engine, "_play_audio_file", return_value=True):
+    # Mock synthesis and audio playback so this test does not require network access.
+    with patch("src.voice.tts.edge_tts.Communicate") as mock_communicate, \
+            patch.object(engine, "_play_audio_file", return_value=True):
+        mock_communicate.return_value.save = AsyncMock(return_value=None)
         res = await engine.speak("Testing NIM JARVIS voice.")
         assert res is True
 
