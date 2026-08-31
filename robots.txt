@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://mohammedila812-nim.github.io/NIM_AGENT/sitemap.xml
