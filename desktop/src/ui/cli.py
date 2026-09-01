@@ -82,11 +82,11 @@ async def run_cli():
     await trigger_coordinator.start_all()
 
     from src.voice.tts import VoiceEngine
-    from src.voice.stt import SpeechToTextEngine
+    from src.voice.stt import get_stt_engine
     from src.voice.barge_in import BargeInController
 
     voice_engine = VoiceEngine()
-    stt_engine = SpeechToTextEngine()
+    stt_engine = get_stt_engine()
 
     def on_voice_command_received(transcript: str):
         console.print(f"\n[bold cyan]🎙️ Spoken Command Recognized:[/bold cyan] {transcript}")
@@ -96,6 +96,11 @@ async def run_cli():
         if active_hud:
             active_hud.set_amplitude(level)
 
+    def on_voice_partial(partial_text: str):
+        if partial_text:
+            if active_hud:
+                active_hud.update_thought(f"Hearing: {partial_text}")
+
     barge_in_controller = BargeInController(
         voice_engine=voice_engine,
         stt_engine=stt_engine,
@@ -103,6 +108,7 @@ async def run_cli():
         on_cancel_task=lambda: main_loop.call_soon_threadsafe(cancel_active_task),
         on_voice_command=on_voice_command_received,
         on_amplitude=on_voice_amplitude,
+        on_partial_transcript=on_voice_partial,
     )
 
     def cancel_active_task():
@@ -300,19 +306,44 @@ async def run_cli():
                 continue
 
             elif user_input.startswith("/mic"):
-                parts = user_input.split(" ", 1)
+                parts = user_input.split(" ")
                 subcmd = parts[1].strip().lower() if len(parts) > 1 else ("off" if barge_in_controller.is_listening else "on")
                 if subcmd == "on":
                     barge_in_controller.enable_voice_listener()
                     console.print("[success]🎙️ Ambient Voice Listener & True Barge-In: [bold]ACTIVATED[/bold][/success]")
-                    console.print("[dim]Speak naturally at any time. Speak during audio playback to barge-in instantly.[/dim]")
+                    console.print("[dim]Speak naturally at any time (Neural Silero-VAD + faster-whisper).[/dim]")
                     if active_hud:
                         active_hud.set_mode("listening")
-                else:
+                elif subcmd == "off":
                     barge_in_controller.disable_voice_listener()
                     console.print("[info]🔇 Ambient Voice Listener: [bold]MUTED[/bold][/info]")
                     if active_hud:
                         active_hud.set_mode("idle")
+                elif subcmd == "status":
+                    status = barge_in_controller.get_status()
+                    table = Table(title="Voice & Speech System Status")
+                    table.add_column("Subsystem", style="cyan")
+                    table.add_column("Property", style="yellow")
+                    table.add_column("Value", style="green")
+                    table.add_row("Listener", "Active", "Yes" if status.get("listener_active") else "No (Muted)")
+                    table.add_row("TTS", "Persona / Voice", f"{status.get('voice')} ({voice_engine.voice})")
+                    table.add_row("VAD", "Backend", str(status.get("vad", {}).get("backend")))
+                    table.add_row("VAD", "Energy Threshold", str(status.get("vad", {}).get("energy_threshold")))
+                    table.add_row("STT", "Backend", str(status.get("stt", {}).get("backend")))
+                    table.add_row("STT", "Model", str(status.get("stt", {}).get("model")))
+                    table.add_row("STT", "Avg Latency", f"{status.get('stt', {}).get('avg_latency_ms', 0)} ms")
+                    table.add_row("STT", "Transcriptions", str(status.get("stt", {}).get("transcriptions", 0)))
+                    console.print(table)
+                elif subcmd == "model" and len(parts) > 2:
+                    m_name = parts[2].strip()
+                    console.print(f"[info]Loading Whisper model '[bold]{m_name}[/bold]'...[/info]")
+                    ok = stt_engine.switch_model(m_name)
+                    if ok:
+                        console.print(f"[success]✓ Active Whisper STT model switched to: [bold]{m_name}[/bold][/success]")
+                    else:
+                        console.print(f"[warning]Failed to load '{m_name}'. Error: {stt_engine._load_error}[/warning]")
+                else:
+                    console.print("[dim]Usage: /mic on | /mic off | /mic status | /mic model <tiny.en|base.en|small.en>[/dim]")
                 continue
 
             elif user_input.startswith("/persona ") or user_input.startswith("/voice_persona "):

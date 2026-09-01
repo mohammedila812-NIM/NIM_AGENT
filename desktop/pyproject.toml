@@ -31,9 +31,13 @@ dependencies = [
     "soundfile>=0.12",
     "SpeechRecognition>=3.10",
     "webrtcvad>=2.0.10",
+    "silero-vad>=0.1",
+    "faster-whisper>=1.0",
+    "torch>=2.0",
     "pyaudio>=0.2.14; sys_platform == 'win32'",
     "pywin32>=306; sys_platform == 'win32'"
 ]
+
 
 [project.scripts]
 nim-jarvis = "src.main:main"

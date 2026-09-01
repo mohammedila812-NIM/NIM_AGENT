@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from src.voice.tts import VoiceEngine
 from src.voice.vad import VADEngine
-from src.voice.stt import SpeechToTextEngine
+from src.voice.stt import SpeechToTextEngine, WhisperSTTEngine, TranscriptResult, get_stt_engine
 from src.voice.barge_in import BargeInController
 from src.tools.voice_tools import (
     SpeakTextTool,
@@ -57,13 +57,36 @@ def test_vad_engine_energy_and_calibration():
     vad.calibrate_noise_floor([0.005, 0.006, 0.004])
     assert vad.energy_threshold >= 0.02
 
+    status = vad.get_status()
+    assert "backend" in status
+    assert "running" in status
 
-def test_stt_pcm_to_wav_and_transcribe():
+
+def test_whisper_stt_and_result_dataclass():
+    res = TranscriptResult(text="open chrome browser", confidence=0.98, backend="whisper:tiny.en")
+    assert bool(res) is True
+    assert res.text == "open chrome browser"
+    assert res.backend == "whisper:tiny.en"
+
+    empty_res = TranscriptResult(text="")
+    assert bool(empty_res) is False
+
+    engine = WhisperSTTEngine(model_name="tiny.en")
+    dummy_pcm = np.zeros(16000, dtype=np.int16).tobytes()
+    wav_data = engine.pcm_to_wav(dummy_pcm, sample_rate=16000)
+    assert wav_data[:4] == b"RIFF"
+    assert b"WAVE" in wav_data[:16]
+
+    status = engine.get_status()
+    assert status["model"] == "tiny.en"
+    assert "avg_latency_ms" in status
+
+
+def test_stt_legacy_shim():
     stt = SpeechToTextEngine()
     dummy_pcm = np.zeros(16000, dtype=np.int16).tobytes()
     wav_data = stt.pcm_to_wav(dummy_pcm, sample_rate=16000)
     assert wav_data[:4] == b"RIFF"
-    assert b"WAVE" in wav_data[:16]
 
 
 @pytest.mark.asyncio
@@ -95,11 +118,16 @@ async def test_barge_in_controller_coordination():
     assert cancelled is True
 
     # When speech ends with captured audio, it routes transcript
-    with patch.object(barge_in.stt_engine, "transcribe_pcm", return_value="Open VS Code"):
+    with patch.object(barge_in.stt_engine, "transcribe_pcm", return_value=TranscriptResult(text="Open VS Code")):
         barge_in._on_speech_end(b"12345" * 1000)
         # Give worker thread a moment
         await asyncio.sleep(0.05)
         assert command_received == "Open VS Code"
+
+    status = barge_in.get_status()
+    assert "listener_active" in status
+    assert "vad" in status
+    assert "stt" in status
 
 
 @pytest.mark.asyncio
@@ -133,3 +161,4 @@ async def test_voice_tools_execution():
         res4 = await listen_tool.execute({"timeout": 2.0}, context)
         assert res4.success is True
         assert res4.data["transcript"] == "Organize downloads"
+
