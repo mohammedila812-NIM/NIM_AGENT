@@ -256,16 +256,18 @@ class SubAgent:
 
                 # Execute tool calls
                 messages.append({"role": "assistant", "content": content or "", "tool_calls": tool_calls})
-                tool_results = []
 
                 for tc in tool_calls:
+                    tc_id = tc.get("id") or f"call_{uuid.uuid4().hex[:8]}"
                     tool_name = tc.get("name") or tc.get("function", {}).get("name", "")
                     tool_args = tc.get("arguments") or tc.get("function", {}).get("arguments", {})
 
                     if tool_name not in self._allowlist and self._allowlist:
-                        tool_results.append({
-                            "tool_call_id": tc.get("id", ""),
-                            "content": f"ERROR: Tool '{tool_name}' not in allowlist for {task.agent_type} agent.",
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc_id,
+                            "name": tool_name,
+                            "content": f"ERROR: Tool '{tool_name}' not in allowlist for {task.agent_type} agent."
                         })
                         continue
 
@@ -285,12 +287,12 @@ class SubAgent:
                         if self.on_finding:
                             self.on_finding(finding)
 
-                    tool_results.append({
-                        "tool_call_id": tc.get("id", ""),
-                        "content": result_content,
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc_id,
+                        "name": tool_name,
+                        "content": result_content
                     })
-
-                messages.append({"role": "tool", "content": tool_results})
 
         except asyncio.TimeoutError:
             err = f"SubAgent '{task.name}' timed out"

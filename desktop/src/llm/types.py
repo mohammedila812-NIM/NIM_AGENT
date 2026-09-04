@@ -41,13 +41,20 @@ class ChatMessage:
         d: Dict[str, Any] = {"role": self.role}
         if self.content is not None:
             if isinstance(self.content, list):
-                d["content"] = [
-                    {"type": p.type, "text": p.text} if p.type == "text"
-                    else {"type": p.type, "image_url": p.image_url}
-                    for p in self.content
-                ]
+                out_parts = []
+                for p in self.content:
+                    if isinstance(p, ContentPart):
+                        if p.type == "text":
+                            out_parts.append({"type": "text", "text": p.text or ""})
+                        else:
+                            out_parts.append({"type": p.type, "image_url": p.image_url})
+                    elif isinstance(p, dict):
+                        out_parts.append(p)
+                    elif isinstance(p, str):
+                        out_parts.append({"type": "text", "text": p})
+                d["content"] = out_parts
             else:
-                d["content"] = self.content
+                d["content"] = str(self.content)
         else:
             d["content"] = None
 

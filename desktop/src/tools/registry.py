@@ -1,5 +1,6 @@
+import json
 import logging
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from .base import BaseTool, ToolContext, ToolResult
 from src.llm.types import ToolDefinition
 from src.security.audit import get_audit_logger
@@ -40,9 +41,18 @@ class UnifiedToolRegistry:
     async def execute_tool(
         self,
         tool_name: str,
-        args: Dict[str, object],
+        args: Any,
         context: ToolContext
     ) -> ToolResult:
+        # Ensure arguments are always deserialized into a dict
+        if isinstance(args, str):
+            try:
+                args = json.loads(args) if args.strip() else {}
+            except Exception:
+                args = {}
+        elif not isinstance(args, dict):
+            args = {}
+
         tool = self.get_tool(tool_name)
         if not tool:
             err_msg = f"Tool '{tool_name}' is not registered in the system."

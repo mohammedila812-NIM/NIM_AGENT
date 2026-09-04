@@ -318,7 +318,9 @@ class LLMClient:
             chat_messages.append(ChatMessage(
                 role=role,
                 content=content,
-                tool_calls=tc_objs
+                tool_calls=tc_objs,
+                tool_call_id=m.get("tool_call_id"),
+                name=m.get("name")
             ))
 
         # Default model if not explicitly specified

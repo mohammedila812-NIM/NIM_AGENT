@@ -141,7 +141,7 @@ if HAS_QT:
                 self.push_task_progress(goal[:30], "running", pct=10)
 
                 try:
-                    async for event in orch.run_react_loop(goal):
+                    async for event in orch.execute_task(goal):
                         ev_type = event.get("event")
                         if ev_type == "iteration_start":
                             it = event.get("iteration", 1)
