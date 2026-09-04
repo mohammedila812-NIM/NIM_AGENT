@@ -20,7 +20,6 @@ except ImportError:
     HAS_WIN32 = False
 
 import psutil
-from src.agent.memory import get_memory_store
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +72,7 @@ class WindowManager:
     """
 
     def __init__(self):
+        from src.agent.memory import get_memory_store
         self.memory_store = get_memory_store()
 
     # -------------------------------------------------------------------------

@@ -13,6 +13,7 @@ class ToolCall:
     type: str = "function"
     function: Dict[str, str] = field(default_factory=dict)  # {"name": ..., "arguments": "{...}"}
     extra_content: Optional[Dict[str, Any]] = None
+    thought_signature: Optional[str] = None
 
     @property
     def name(self) -> str:
@@ -79,8 +80,22 @@ class ChatMessage:
                     "type": "function",
                     "function": {"name": tc.name, "arguments": args}
                 }
-                if hasattr(tc, "extra_content") and tc.extra_content:
-                    call_item["extra_content"] = tc.extra_content
+                sig = getattr(tc, "thought_signature", None)
+                extra = getattr(tc, "extra_content", None)
+                if not sig and isinstance(extra, dict):
+                    sig = (
+                        extra.get("google", {}).get("thought_signature")
+                        or extra.get("google", {}).get("thoughtSignature")
+                        or extra.get("thought_signature")
+                        or extra.get("thoughtSignature")
+                    )
+                if sig:
+                    call_item["thought_signature"] = sig
+                    call_item["thoughtSignature"] = sig
+                    if not extra:
+                        call_item["extra_content"] = {"google": {"thought_signature": sig}}
+                if extra:
+                    call_item["extra_content"] = extra
                 d["tool_calls"].append(call_item)
         return d
 

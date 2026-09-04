@@ -219,13 +219,17 @@ class LLMClient:
                                         "id": td_id or f"call_{target_idx}_{uuid.uuid4().hex[:8]}",
                                         "name": "",
                                         "arguments": "",
-                                        "extra_content": td.get("extra_content")
+                                        "extra_content": td.get("extra_content"),
+                                        "thought_signature": td.get("thought_signature") or td.get("thoughtSignature") or func_delta.get("thought_signature") or func_delta.get("thoughtSignature")
                                     }
 
                                 if td_id:
                                     tool_call_accumulator[target_idx]["id"] = td_id
                                 if td.get("extra_content"):
                                     tool_call_accumulator[target_idx]["extra_content"] = td["extra_content"]
+                                sig_delta = td.get("thought_signature") or td.get("thoughtSignature") or func_delta.get("thought_signature") or func_delta.get("thoughtSignature")
+                                if sig_delta:
+                                    tool_call_accumulator[target_idx]["thought_signature"] = sig_delta
 
                                 if name_delta:
                                     if not tool_call_accumulator[target_idx]["name"]:
@@ -242,10 +246,20 @@ class LLMClient:
                         final_tool_calls: List[ToolCall] = []
                         for idx, tc_data in sorted(tool_call_accumulator.items()):
                             if tc_data["name"]:
+                                extra_cnt = tc_data.get("extra_content")
+                                sig = tc_data.get("thought_signature")
+                                if not sig and isinstance(extra_cnt, dict):
+                                    sig = (
+                                        extra_cnt.get("google", {}).get("thought_signature")
+                                        or extra_cnt.get("google", {}).get("thoughtSignature")
+                                        or extra_cnt.get("thought_signature")
+                                        or extra_cnt.get("thoughtSignature")
+                                    )
                                 tc = ToolCall(
                                     id=tc_data["id"],
                                     function={"name": tc_data["name"], "arguments": tc_data["arguments"]},
-                                    extra_content=tc_data.get("extra_content")
+                                    extra_content=extra_cnt,
+                                    thought_signature=sig
                                 )
                                 final_tool_calls.append(tc)
                                 yield StreamEvent(event_type="tool_call", data=tc)
@@ -323,9 +337,20 @@ class LLMClient:
                     if isinstance(tc, ToolCall):
                         tc_objs.append(tc)
                     elif isinstance(tc, dict):
+                        sig = tc.get("thought_signature") or tc.get("thoughtSignature")
+                        extra = tc.get("extra_content")
+                        if not sig and isinstance(extra, dict):
+                            sig = (
+                                extra.get("google", {}).get("thought_signature")
+                                or extra.get("google", {}).get("thoughtSignature")
+                                or extra.get("thought_signature")
+                                or extra.get("thoughtSignature")
+                            )
                         tc_objs.append(ToolCall(
                             id=tc.get("id", f"call_{uuid.uuid4().hex[:8]}"),
-                            function=tc.get("function", {"name": tc.get("name", ""), "arguments": tc.get("arguments", {})})
+                            function=tc.get("function", {"name": tc.get("name", ""), "arguments": tc.get("arguments", {})}),
+                            extra_content=extra,
+                            thought_signature=sig
                         ))
             chat_messages.append(ChatMessage(
                 role=role,
@@ -381,7 +406,10 @@ class LLMClient:
                 "name": tc.function.get("name", "") if isinstance(tc.function, dict) else getattr(tc, "name", ""),
                 "arguments": tc.function.get("arguments", {}) if isinstance(tc.function, dict) else getattr(tc, "arguments", {})
             }
-            if hasattr(tc, "extra_content") and tc.extra_content:
+            if getattr(tc, "thought_signature", None):
+                item["thought_signature"] = tc.thought_signature
+                item["thoughtSignature"] = tc.thought_signature
+            if getattr(tc, "extra_content", None):
                 item["extra_content"] = tc.extra_content
             formatted_tool_calls.append(item)
 
