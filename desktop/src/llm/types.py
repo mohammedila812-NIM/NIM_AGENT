@@ -58,19 +58,28 @@ class ChatMessage:
         else:
             d["content"] = None
 
+        if self.reasoning_content:
+            d["reasoning_content"] = self.reasoning_content
         if self.tool_call_id:
             d["tool_call_id"] = self.tool_call_id
         if self.name:
             d["name"] = self.name
         if self.tool_calls:
+            import json
             d["tool_calls"] = []
             for tc in self.tool_calls:
+                args = tc.arguments
+                if isinstance(args, (dict, list)):
+                    args = json.dumps(args)
+                elif not isinstance(args, str):
+                    args = str(args)
+
                 call_item: Dict[str, Any] = {
                     "id": tc.id,
                     "type": "function",
-                    "function": {"name": tc.name, "arguments": tc.arguments}
+                    "function": {"name": tc.name, "arguments": args}
                 }
-                if tc.extra_content:
+                if hasattr(tc, "extra_content") and tc.extra_content:
                     call_item["extra_content"] = tc.extra_content
                 d["tool_calls"].append(call_item)
         return d

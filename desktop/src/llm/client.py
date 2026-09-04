@@ -71,17 +71,29 @@ class LLMClient:
             "stream_options": {"include_usage": True}
         }
         if request.tools:
-            payload["tools"] = [
-                {
-                    "type": "function",
-                    "function": {
-                        "name": t.function.get("name"),
-                        "description": t.function.get("description", ""),
-                        "parameters": t.function.get("parameters", {})
-                    }
-                }
-                for t in request.tools
-            ]
+            payload["tools"] = []
+            for t in request.tools:
+                if isinstance(t, ToolDefinition):
+                    payload["tools"].append({
+                        "type": "function",
+                        "function": {
+                            "name": t.function.get("name"),
+                            "description": t.function.get("description", ""),
+                            "parameters": t.function.get("parameters", {})
+                        }
+                    })
+                elif isinstance(t, dict):
+                    if "function" in t and isinstance(t["function"], dict):
+                        payload["tools"].append(t)
+                    else:
+                        payload["tools"].append({
+                            "type": "function",
+                            "function": {
+                                "name": t.get("name"),
+                                "description": t.get("description", ""),
+                                "parameters": t.get("parameters", {})
+                            }
+                        })
             if request.tool_choice:
                 payload["tool_choice"] = request.tool_choice
 
@@ -318,6 +330,7 @@ class LLMClient:
             chat_messages.append(ChatMessage(
                 role=role,
                 content=content,
+                reasoning_content=m.get("reasoning_content"),
                 tool_calls=tc_objs,
                 tool_call_id=m.get("tool_call_id"),
                 name=m.get("name")
@@ -363,11 +376,14 @@ class LLMClient:
 
         formatted_tool_calls = []
         for tc in accumulated_tool_calls:
-            formatted_tool_calls.append({
+            item = {
                 "id": tc.id,
                 "name": tc.function.get("name", "") if isinstance(tc.function, dict) else getattr(tc, "name", ""),
                 "arguments": tc.function.get("arguments", {}) if isinstance(tc.function, dict) else getattr(tc, "arguments", {})
-            })
+            }
+            if hasattr(tc, "extra_content") and tc.extra_content:
+                item["extra_content"] = tc.extra_content
+            formatted_tool_calls.append(item)
 
         return {
             "content": accumulated_content,

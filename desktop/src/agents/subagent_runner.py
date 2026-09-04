@@ -255,7 +255,12 @@ class SubAgent:
                     break
 
                 # Execute tool calls
-                messages.append({"role": "assistant", "content": content or "", "tool_calls": tool_calls})
+                messages.append({
+                    "role": "assistant",
+                    "content": content or "",
+                    "reasoning_content": response.get("reasoning"),
+                    "tool_calls": tool_calls
+                })
 
                 for tc in tool_calls:
                     tc_id = tc.get("id") or f"call_{uuid.uuid4().hex[:8]}"
