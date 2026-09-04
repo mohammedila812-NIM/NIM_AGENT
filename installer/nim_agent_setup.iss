@@ -20,7 +20,7 @@ AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
 
 ; Consumer-grade per-user installation (Zero UAC Admin prompt required)
-DefaultDirName={userlocalappdata}\NIM_Agent
+DefaultDirName={localappdata}\NIM_Agent
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
@@ -70,5 +70,5 @@ Filename: "{app}\{#MyAppExeName}"; Parameters: "--onboarding"; Description: "Lau
 
 [UninstallDelete]
 ; Clean up local runtime snapshots, cache, and logs on uninstall
-Type: filesandordirs; Name: "{userprofile}\.nim_jarvis"
+Type: filesandordirs; Name: "{localappdata}\NIM_Agent"
 Type: filesandordirs; Name: "{app}"

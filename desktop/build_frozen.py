@@ -31,7 +31,7 @@ def check_prerequisites():
 def build_main_app():
     """Freezes main.py into standalone NIM_Agent.exe."""
     print("=" * 60)
-    print("⚡ Building NIM_Agent.exe (Windowed Desktop Tray & HUD App)...")
+    print("[*] Building NIM_Agent.exe (Windowed Desktop Tray & HUD App)...")
     print("=" * 60)
 
     main_script = str(DESKTOP_DIR / "src" / "main.py")
@@ -48,6 +48,19 @@ def build_main_app():
         f"--distpath={DESKTOP_DIR / 'dist'}",
         f"--workpath={BUILD_DIR}",
         f"--paths={DESKTOP_DIR}",
+        # Exclude heavy or broken third-party hooks
+        "--exclude-module=matplotlib",
+        "--exclude-module=scipy",
+        "--exclude-module=pandas",
+        "--exclude-module=IPython",
+        "--exclude-module=jupyter",
+        "--exclude-module=notebook",
+        "--exclude-module=tkinter.test",
+        "--exclude-module=PyQt5",
+        "--exclude-module=PyQt6",
+        "--exclude-module=PySide2",
+        "--exclude-module=PySide6",
+        "--exclude-module=webrtcvad",
         # Hidden imports for dynamic modules
         "--hidden-import=customtkinter",
         "--hidden-import=PIL",
@@ -71,13 +84,13 @@ def build_main_app():
     ]
 
     subprocess.check_call(cmd, cwd=str(DESKTOP_DIR))
-    print("✓ NIM_Agent.exe compiled successfully.")
+    print("[OK] NIM_Agent.exe compiled successfully.")
 
 
 def build_native_bridge():
     """Freezes native_messaging.py into nim_bridge_host.exe."""
     print("=" * 60)
-    print("⚡ Building nim_bridge_host.exe (Native Messaging Host)...")
+    print("[*] Building nim_bridge_host.exe (Native Messaging Host)...")
     print("=" * 60)
 
     bridge_script = str(DESKTOP_DIR / "src" / "bridge" / "native_messaging.py")
@@ -93,22 +106,29 @@ def build_native_bridge():
         "--onefile",
         f"--distpath={DESKTOP_DIR / 'dist' / 'NIM_Agent'}",
         f"--workpath={BUILD_DIR}",
+        "--exclude-module=matplotlib",
+        "--exclude-module=scipy",
+        "--exclude-module=pandas",
+        "--exclude-module=PyQt5",
+        "--exclude-module=PyQt6",
+        "--exclude-module=webrtcvad",
         bridge_script,
     ]
 
     subprocess.check_call(cmd, cwd=str(DESKTOP_DIR))
-    print("✓ nim_bridge_host.exe compiled successfully.")
+    print("[OK] nim_bridge_host.exe compiled successfully.")
 
 
 def copy_support_assets():
     """Copies manifest templates, icons, and themes into the output distribution directory."""
     print("[*] Copying runtime support assets...")
+    DIST_DIR.mkdir(parents=True, exist_ok=True)
     manifest_src = DESKTOP_DIR / "src" / "bridge" / "manifest_template.json"
     manifest_dst = DIST_DIR / "manifest.json"
     if manifest_src.exists():
         shutil.copy2(manifest_src, manifest_dst)
 
-    print(f"✓ All assets packaged in: {DIST_DIR}")
+    print(f"[OK] All assets packaged in: {DIST_DIR}")
 
 
 def main():
@@ -116,7 +136,7 @@ def main():
     build_main_app()
     build_native_bridge()
     copy_support_assets()
-    print("\n🎉 Standalone distribution build complete!")
+    print("\n[SUCCESS] Standalone distribution build complete!")
     print(f"Directory: {DIST_DIR}")
 
 

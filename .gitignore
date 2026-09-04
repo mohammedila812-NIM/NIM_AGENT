@@ -20,6 +20,10 @@ __pycache__/
 *.sqlite3
 *.db
 desktop/*.db
+desktop/dist/
+desktop/build/
+dist_installer/
+*.spec
 
 # Local configuration and secrets
 .env
