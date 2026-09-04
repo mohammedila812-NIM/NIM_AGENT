@@ -283,3 +283,93 @@ class LLMClient:
                 continue
 
         return recovered
+
+    async def generate(
+        self,
+        messages: List[Dict[str, Any]],
+        system: str = "",
+        tools: Optional[List[ToolDefinition]] = None,
+        max_tokens: int = 4096,
+        model: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Non-streaming chat generation method for subagents and background workers.
+        Returns a dict: {"content": str, "tool_calls": List[dict], "usage": dict}
+        """
+        chat_messages = []
+        if system:
+            chat_messages.append(ChatMessage(role="system", content=system))
+
+        for m in messages:
+            role = m.get("role", "user")
+            content = m.get("content")
+            tc_list = m.get("tool_calls")
+            tc_objs = None
+            if tc_list:
+                tc_objs = []
+                for tc in tc_list:
+                    if isinstance(tc, ToolCall):
+                        tc_objs.append(tc)
+                    elif isinstance(tc, dict):
+                        tc_objs.append(ToolCall(
+                            id=tc.get("id", f"call_{uuid.uuid4().hex[:8]}"),
+                            function=tc.get("function", {"name": tc.get("name", ""), "arguments": tc.get("arguments", {})})
+                        ))
+            chat_messages.append(ChatMessage(
+                role=role,
+                content=content,
+                tool_calls=tc_objs
+            ))
+
+        # Default model if not explicitly specified
+        active_model = model or "default"
+        try:
+            from src.config import AgentConfig
+            active_model = model or AgentConfig().model
+        except Exception:
+            pass
+
+        req = ChatCompletionRequest(
+            model=active_model,
+            messages=chat_messages,
+            tools=tools,
+            temperature=0.2,
+            max_tokens=max_tokens,
+            stream=True
+        )
+
+        accumulated_content = ""
+        accumulated_reasoning = ""
+        accumulated_tool_calls: List[ToolCall] = []
+        usage: Dict[str, Any] = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+        async for ev in self.stream_chat(req):
+            if ev.event_type == "content":
+                accumulated_content += ev.data
+            elif ev.event_type == "reasoning":
+                accumulated_reasoning += ev.data
+            elif ev.event_type == "tool_call":
+                accumulated_tool_calls.append(ev.data)
+            elif ev.event_type == "usage":
+                usage = ev.data
+            elif ev.event_type == "done" and isinstance(ev.data, dict):
+                accumulated_content = ev.data.get("content", accumulated_content)
+                accumulated_tool_calls = ev.data.get("tool_calls", accumulated_tool_calls)
+                usage = ev.data.get("usage", usage)
+            elif ev.event_type == "error":
+                raise RuntimeError(str(ev.data))
+
+        formatted_tool_calls = []
+        for tc in accumulated_tool_calls:
+            formatted_tool_calls.append({
+                "id": tc.id,
+                "name": tc.function.get("name", "") if isinstance(tc.function, dict) else getattr(tc, "name", ""),
+                "arguments": tc.function.get("arguments", {}) if isinstance(tc.function, dict) else getattr(tc, "arguments", {})
+            })
+
+        return {
+            "content": accumulated_content,
+            "reasoning": accumulated_reasoning,
+            "tool_calls": formatted_tool_calls,
+            "usage": usage
+        }

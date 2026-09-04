@@ -40,23 +40,24 @@ async def run_cli():
         console.print(f"[warning]Warning: Could not start Bridge Server on default port: {e}[/warning]")
 
     console.print(Panel.fit(
-        "[bold cyan]⚡ NIM JARVIS Desktop — Autonomous OS AI Partner[/bold cyan]\n"
-        "[dim]Perception Hierarchy • Neural Voice STT/TTS • Futuristic Floating HUD • Browser Partner[/dim]\n\n"
+        "[bold cyan]⚡ NIM JARVIS Desktop v1.1.0 — Autonomous OS AI Partner[/bold cyan]\n"
+        "[dim]Holographic GUI • Subagent Swarms • Accent-Tolerant Voice v3 • DPI Screen Grounding[/dim]\n\n"
         "Commands:\n"
-        "  • Type any goal/task to execute (e.g. 'Analyze quarterly revenue in financials.xlsx')\n"
-        "  • [yellow]/hud[/yellow] — Launch / toggle the Futuristic Floating Desktop HUD Overlay\n"
+        "  • Type any goal/task to execute (e.g. 'Spawn subagents to analyze the project codebase')\n"
+        "  • [yellow]/gui[/yellow] — Launch the Holographic Cyberpunk Command Interface (Alt+Space to toggle)\n"
+        "  • [yellow]/mic on|off|status[/yellow] — Toggle ambient neural listening with true barge-in\n"
+        "  • [yellow]/key <provider> <apikey>[/yellow] — Save API key in secure OS Credential Store (e.g. /key gemini AIza...)\n"
+        "  • [yellow]/provider <provider_id>[/yellow] — Switch active brain provider (e.g. /provider gemini, /provider nim-cloud)\n"
+        "  • [yellow]/model <model_name>[/yellow] — Switch active model (e.g. /model models/gemini-flash-lite-latest)\n"
+        "  • [yellow]/vision_provider <provider_id> <model>[/yellow] — Set dedicated vision LLM\n"
+        "  • [yellow]/vision_status[/yellow] — Show current vision & perception configuration\n"
         "  • [yellow]/voice <text>[/yellow] — Speak text aloud in natural neural voice\n"
-        "  • [yellow]/key <provider> <apikey>[/yellow] — Set provider API key in OS Credential Store\n"
-        "  • [yellow]/provider <provider_id>[/yellow] — Switch active brain provider (e.g. /provider gemini)\n"
-        "  • [yellow]/model <model_name>[/yellow] — Switch active brain model (e.g. /model models/gemini-flash-lite-latest)\n"
-        "  • [yellow]/vision_provider <provider_id> <model>[/yellow] — Set dedicated vision LLM (e.g. /vision_provider nim-cloud nvidia/llama-3.2-90b-vision-instruct)\n"
-        "  • [yellow]/vision_status[/yellow] — Show current vision provider configuration\n"
-        "  • [yellow]/keys[/yellow] — List configured provider keys & active model\n"
+        "  • [yellow]/keys[/yellow] — List configured provider keys & active brain model\n"
         "  • [yellow]/undo[/yellow] — Revert last file modification/deletion\n"
-        "  • [yellow]/bridge[/yellow] — View WebSocket bridge status & pairing token\n"
-        "  • [yellow]/tools[/yellow] — View registered perception, voice, document, & OS tools\n"
+        "  • [yellow]/bridge[/yellow] — View WebSocket browser bridge status & pairing token\n"
+        "  • [yellow]/tools[/yellow] — View registered tools (vision, subagents, coords, OS, documents)\n"
         "  • [yellow]/exit[/yellow] — Quit",
-        title="🤖 NIM JARVIS",
+        title="🤖 NIM JARVIS v1.1.0",
         border_style="cyan"
     ))
 

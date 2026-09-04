@@ -71,6 +71,30 @@ if HAS_QT:
             super().__init__(parent)
             self._on_voice_toggle: Optional[Callable] = None
             self._on_command_submit: Optional[Callable[[str], None]] = None
+            self._orchestrator = None
+            self._barge_in = None
+            self._is_busy = False
+
+        def _get_orchestrator(self):
+            if self._orchestrator is None:
+                try:
+                    from src.agent.loop import AgentOrchestrator
+                    self._orchestrator = AgentOrchestrator()
+                except Exception as e:
+                    logger.error("Could not create AgentOrchestrator: %s", e)
+            return self._orchestrator
+
+        def _get_barge_in(self):
+            if self._barge_in is None:
+                try:
+                    from src.voice.barge_in import BargeInController
+                    self._barge_in = BargeInController(
+                        on_voice_command=lambda text: self.submitCommand(text),
+                        on_partial_transcript=lambda p: self.push_voice_state("listening", p),
+                    )
+                except Exception as e:
+                    logger.error("Could not create BargeInController: %s", e)
+            return self._barge_in
 
         # Called BY JavaScript → Python
 
@@ -79,14 +103,80 @@ if HAS_QT:
             """JavaScript calls this when mic button is pressed."""
             if self._on_voice_toggle:
                 threading.Thread(target=self._on_voice_toggle, daemon=True).start()
+            else:
+                b = self._get_barge_in()
+                if b:
+                    active = b.toggle_voice_listener()
+                    state_str = "listening" if active else "idle"
+                    self.push_voice_state(state_str)
+                    self.push_toast("MICROPHONE", "Voice listening " + ("ACTIVATED" if active else "MUTED"))
 
         @pyqtSlot(str)
         def submitCommand(self, command: str) -> None:
             """JavaScript calls this when user submits a text command."""
+            cmd = command.strip()
+            if not cmd:
+                return
+
             if self._on_command_submit:
                 threading.Thread(
-                    target=self._on_command_submit, args=(command,), daemon=True
+                    target=self._on_command_submit, args=(cmd,), daemon=True
                 ).start()
+            else:
+                threading.Thread(
+                    target=self._run_internal_task, args=(cmd,), daemon=True
+                ).start()
+
+        def _run_internal_task(self, goal: str):
+            """Executes an agent task directly from the GUI."""
+            import asyncio
+            async def _coro():
+                orch = self._get_orchestrator()
+                if not orch:
+                    self.push_log("Agent engine could not be initialized.", "danger")
+                    return
+
+                self._is_busy = True
+                self.push_log(f"Goal: {goal}", "info")
+                self.push_task_progress(goal[:30], "running", pct=10)
+
+                try:
+                    async for event in orch.run_react_loop(goal):
+                        ev_type = event.get("event")
+                        if ev_type == "iteration_start":
+                            it = event.get("iteration", 1)
+                            self.push_task_progress(f"Step {it}", "thinking", pct=min(90, it * 15))
+                        elif ev_type == "reasoning_chunk":
+                            pass # Keep logs clean
+                        elif ev_type == "tool_call_start":
+                            t_name = event.get("tool", "")
+                            args_str = json.dumps(event.get("args", {}))
+                            if len(args_str) > 80:
+                                args_str = args_str[:80] + "..."
+                            self.push_log(f"⚡ Tool Call: {t_name} {args_str}", "tool")
+                        elif ev_type == "tool_call_result":
+                            res_str = str(event.get("result", ""))
+                            if len(res_str) > 200:
+                                res_str = res_str[:200] + "..."
+                            self.push_log(f"↳ Result: {res_str}", "info")
+                        elif ev_type == "task_completed":
+                            ans = event.get("final_answer", "")
+                            self.push_log(f"✅ {ans}", "success")
+                            self.push_task_progress("Completed", "idle", pct=100)
+                            self.push_toast("TASK COMPLETED", goal[:40])
+                        elif ev_type == "task_cancelled":
+                            self.push_log("Task cancelled.", "warning")
+                            self.push_task_progress("Cancelled", "idle", pct=0)
+                        elif ev_type == "error":
+                            self.push_log(f"Error: {event.get('message')}", "danger")
+                            self.push_task_progress("Failed", "idle", pct=0)
+                except Exception as ex:
+                    logger.error("GUI task error: %s", ex, exc_info=True)
+                    self.push_log(f"Task exception: {ex}", "danger")
+                finally:
+                    self._is_busy = False
+
+            asyncio.run(_coro())
 
         @pyqtSlot(result=str)
         def getVersion(self) -> str:

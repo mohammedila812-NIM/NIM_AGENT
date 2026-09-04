@@ -231,4 +231,24 @@ document.addEventListener("DOMContentLoaded", () => {
         const feed = document.getElementById("agent-log-feed");
         if (feed) feed.innerHTML = "";
     });
+
+    document.getElementById("btn-anchors")?.addEventListener("click", () => {
+        cmdInput.value = "List all saved coordinate anchors";
+        executeCommand();
+    });
+
+    document.getElementById("btn-subagents")?.addEventListener("click", () => {
+        cmdInput.value = "Show subagent blackboard findings and swarm status";
+        executeCommand();
+    });
+
+    document.getElementById("btn-quick-calibrate")?.addEventListener("click", () => {
+        cmdInput.value = "Calibrate primary monitor screen coordinates";
+        executeCommand();
+    });
+
+    document.getElementById("btn-list-mon")?.addEventListener("click", () => {
+        cmdInput.value = "List all connected monitors and DPI scaling";
+        executeCommand();
+    });
 });
