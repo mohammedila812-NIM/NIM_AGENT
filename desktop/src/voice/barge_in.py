@@ -70,6 +70,15 @@ class BargeInController:
         self.vad_engine.stop()
         logger.info("🔇 Voice listener disabled.")
 
+    def toggle_voice_listener(self) -> bool:
+        """Toggles ambient microphone listening between active and muted. Returns new state."""
+        if self.is_listening:
+            self.disable_voice_listener()
+            return False
+        else:
+            self.enable_voice_listener()
+            return True
+
     def _on_speech_start(self):
         """Triggered immediately upon voice activity onset."""
         self._last_speech_time = time.time()

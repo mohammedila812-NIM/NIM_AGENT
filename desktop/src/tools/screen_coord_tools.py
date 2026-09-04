@@ -108,19 +108,29 @@ def _gemini_locate_element(
 
 
 def _get_gemini_key() -> Optional[str]:
-    """Retrieve Gemini API key from NIM secret store."""
+    """Retrieve Gemini API key from OS SecretStore, env vars, or local config."""
     try:
-        from src.security.audit import get_audit_logger  # noqa – trigger config load
-        import os
-        key = os.environ.get("GEMINI_API_KEY") or os.environ.get("NIM_GEMINI_API_KEY")
+        from src.security.secrets import get_secret_store
+        store = get_secret_store()
+        key = store.get_key("gemini")
         if key:
             return key
-        # Try config
-        nim_dir = __import__("pathlib").Path.home() / ".nim_jarvis"
+    except Exception:
+        pass
+
+    try:
+        import os
+        for k in ["GEMINI_API_KEY", "NIM_GEMINI_KEY", "NIM_GEMINI_API_KEY", "GOOGLE_API_KEY"]:
+            if k in os.environ and os.environ[k].strip():
+                return os.environ[k].strip()
+
+        # Try local secrets config
+        import pathlib
+        nim_dir = pathlib.Path.home() / ".nim_jarvis"
         secrets_file = nim_dir / "secrets.json"
         if secrets_file.exists():
             data = json.loads(secrets_file.read_text())
-            return data.get("gemini_api_key") or data.get("GEMINI_API_KEY")
+            return data.get("gemini_api_key") or data.get("GEMINI_API_KEY") or data.get("gemini")
     except Exception:
         pass
     return None

@@ -24,6 +24,27 @@ from src.agents.subagent_runner import SubAgentRunner, SubAgentTask, ParallelRun
 logger = logging.getLogger(__name__)
 
 
+def _get_runner_deps(context: ToolContext):
+    """Resolve tool_registry and llm_client with automatic fallback."""
+    from src.tools.registry import get_tool_registry
+    tool_registry = context.metadata.get("tool_registry") if context and context.metadata else None
+    if not tool_registry:
+        tool_registry = get_tool_registry()
+
+    llm_client = context.metadata.get("llm_client") if context and context.metadata else None
+    if not llm_client:
+        try:
+            from src.llm.router import ModelRouter
+            from src.llm.client import LLMClient
+            router = ModelRouter()
+            route = router.get_route(task_type="default")
+            llm_client = LLMClient(base_url=route.provider.base_url, api_key=route.provider.api_key)
+        except Exception as e:
+            logger.warning("Could not initialize default LLMClient for subagent: %s", e)
+
+    return tool_registry, llm_client
+
+
 # ---------------------------------------------------------------------------
 # Tool: Spawn Single Subagent
 # ---------------------------------------------------------------------------
@@ -78,14 +99,12 @@ class SpawnSubagentTool(BaseTool):
                 timeout_seconds=float(args.get("timeout_seconds", 120.0)),
             )
 
-            # Get tool registry and LLM client from context metadata
-            tool_registry = context.metadata.get("tool_registry")
-            llm_client = context.metadata.get("llm_client")
+            tool_registry, llm_client = _get_runner_deps(context)
 
             if not tool_registry or not llm_client:
                 return ToolResult(
                     success=False, data=None,
-                    error="Tool registry or LLM client not available in context."
+                    error="No active LLM brain provider configured to execute subagent tasks. Set an API key via /key <provider> <key>."
                 )
 
             bb = get_blackboard()
@@ -177,13 +196,12 @@ class RunParallelSubagentsTool(BaseTool):
                 for t in tasks_raw
             ]
 
-            tool_registry = context.metadata.get("tool_registry")
-            llm_client = context.metadata.get("llm_client")
+            tool_registry, llm_client = _get_runner_deps(context)
 
             if not tool_registry or not llm_client:
                 return ToolResult(
                     success=False, data=None,
-                    error="Tool registry or LLM client not available in context."
+                    error="No active LLM brain provider configured to execute subagent tasks. Set an API key via /key <provider> <key>."
                 )
 
             bb = get_blackboard()

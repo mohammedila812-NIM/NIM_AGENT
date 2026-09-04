@@ -393,7 +393,13 @@ class AgentOrchestrator:
                             continue
 
                     # Execute tool
-                    context = ToolContext(task_id=t_id)
+                    context = ToolContext(
+                        task_id=t_id,
+                        metadata={
+                            "tool_registry": self.tool_registry,
+                            "llm_client": client,
+                        }
+                    )
                     result = await self.tool_registry.execute_tool(tool_name, tool_args, context)
                     obs_str = result.to_output_str()
 
