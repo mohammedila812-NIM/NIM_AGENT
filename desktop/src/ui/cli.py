@@ -292,27 +292,15 @@ async def run_cli():
                 continue
 
             elif user_input in ("/gui", "/hud"):
-                if active_hud is None:
-                    try:
-                        from src.ui.gui.app import launch_gui
-                        import threading
-                        gui_thread = threading.Thread(
-                            target=launch_gui,
-                            kwargs={
-                                "on_voice_toggle": barge_in_controller.toggle_voice_listener,
-                                "on_command_submit": lambda cmd: asyncio.run_coroutine_threadsafe(
-                                    execute_task_pipeline(cmd), asyncio.get_event_loop()
-                                )
-                            },
-                            daemon=True
-                        )
-                        gui_thread.start()
-                        console.print("[success]✓ NIM JARVIS Holographic Command Interface GUI launched![/success]")
-                        console.print("[dim]Cyberpunk glassmorphic UI active. Press Alt+Space to toggle.[/dim]")
-                    except Exception as ge:
-                        console.print(f"[warning]Could not launch Holographic GUI: {ge}[/warning]")
-                else:
-                    console.print("[info]GUI is already active on screen.[/info]")
+                try:
+                    import subprocess
+                    from pathlib import Path
+                    main_py = Path(__file__).resolve().parent.parent / "main.py"
+                    subprocess.Popen([sys.executable, str(main_py), "--gui"])
+                    console.print("[success]✓ NIM JARVIS Holographic Command Interface GUI launched![/success]")
+                    console.print("[dim]Cyberpunk glassmorphic UI active. Press Alt+Space to toggle.[/dim]")
+                except Exception as ge:
+                    console.print(f"[warning]Could not launch Holographic GUI: {ge}[/warning]")
                 continue
 
             elif user_input.startswith("/mic"):

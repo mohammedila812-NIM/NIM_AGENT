@@ -37,11 +37,8 @@ from src.perception.coord_calibrator import (
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _take_screenshot_b64(monitor_index: int = 1) -> tuple[str, int, int]:
-    """Capture a monitor screenshot and return (base64_png, width, height)."""
+def _capture_screen_pil(monitor_index: int = 1):
+    """Capture a monitor screenshot as PIL Image."""
     import mss
     from PIL import Image
 
@@ -50,89 +47,32 @@ def _take_screenshot_b64(monitor_index: int = 1) -> tuple[str, int, int]:
         idx = min(monitor_index, len(monitors) - 1)
         mon = monitors[idx]
         raw = sct.grab(mon)
-        img = Image.frombytes("RGB", raw.size, raw.bgra, "raw", "BGRX")
-        buf = io.BytesIO()
-        img.save(buf, format="PNG", optimize=True)
-        return base64.b64encode(buf.getvalue()).decode(), img.width, img.height
+        return Image.frombytes("RGB", raw.size, raw.bgra, "raw", "BGRX")
 
 
-def _gemini_locate_element(
-    image_b64: str,
-    element_description: str,
-    api_key: str,
-) -> Optional[List[float]]:
-    """
-    Call Gemini vision to locate a UI element and return
-    [ymin, xmin, ymax, xmax] in 0–1000 normalized coords.
-    Returns None on failure.
-    """
-    import httpx
-
-    prompt = (
-        f"You are a computer vision assistant. Look at this screenshot and find: "
-        f'"{element_description}"\n\n'
-        f"Return ONLY a JSON object with the bounding box of the element:\n"
-        f'  {{"bbox": [ymin, xmin, ymax, xmax]}}\n'
-        f"where coordinates are in 0–1000 range (0=top/left, 1000=bottom/right).\n"
-        f"If not found, return: {{\"bbox\": null}}"
-    )
-
-    payload = {
-        "contents": [{
-            "parts": [
-                {
-                    "inline_data": {
-                        "mime_type": "image/png",
-                        "data": image_b64,
-                    }
-                },
-                {"text": prompt},
-            ]
-        }],
-        "generationConfig": {"temperature": 0.0, "maxOutputTokens": 200},
-    }
-
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
-    try:
-        resp = httpx.post(url, json=payload, timeout=30)
-        resp.raise_for_status()
-        text = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-        # Strip markdown code fences if present
-        if text.startswith("```"):
-            text = "\n".join(text.split("\n")[1:-1])
-        data = json.loads(text)
-        return data.get("bbox")
-    except Exception as exc:
-        logger.warning("Gemini element locate failed: %s", exc)
+def _extract_bbox(text: str) -> Optional[List[float]]:
+    """Extract [ymin, xmin, ymax, xmax] from model output text."""
+    import re
+    if not text:
         return None
-
-
-def _get_gemini_key() -> Optional[str]:
-    """Retrieve Gemini API key from OS SecretStore, env vars, or local config."""
+    # 1. Try direct JSON parse
     try:
-        from src.security.secrets import get_secret_store
-        store = get_secret_store()
-        key = store.get_key("gemini")
-        if key:
-            return key
+        clean = text.strip()
+        if clean.startswith("```"):
+            clean = "\n".join(clean.split("\n")[1:-1]).strip()
+        data = json.loads(clean)
+        if isinstance(data, dict) and "bbox" in data and isinstance(data["bbox"], list):
+            return [float(x) for x in data["bbox"]]
+        if isinstance(data, list) and len(data) == 4:
+            return [float(x) for x in data]
     except Exception:
         pass
 
-    try:
-        import os
-        for k in ["GEMINI_API_KEY", "NIM_GEMINI_KEY", "NIM_GEMINI_API_KEY", "GOOGLE_API_KEY"]:
-            if k in os.environ and os.environ[k].strip():
-                return os.environ[k].strip()
+    # 2. Try regex search for [ymin, xmin, ymax, xmax] pattern
+    match = re.search(r"\[\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*\]", text)
+    if match:
+        return [float(match.group(i)) for i in range(1, 5)]
 
-        # Try local secrets config
-        import pathlib
-        nim_dir = pathlib.Path.home() / ".nim_jarvis"
-        secrets_file = nim_dir / "secrets.json"
-        if secrets_file.exists():
-            data = json.loads(secrets_file.read_text())
-            return data.get("gemini_api_key") or data.get("GEMINI_API_KEY") or data.get("gemini")
-    except Exception:
-        pass
     return None
 
 
@@ -367,29 +307,35 @@ class LocateUIElementVisualTool(BaseTool):
         button = str(args.get("button", "left"))
         anchor_name = args.get("save_as_anchor")
 
-        api_key = _get_gemini_key()
-        if not api_key:
-            return ToolResult(
-                success=False, data=None,
-                error="Gemini API key not found. Set GEMINI_API_KEY environment variable."
-            )
-
         try:
-            # Capture screenshot in thread pool (mss is sync)
+            from src.llm.vision import VisionClient
+            vision_client = VisionClient()
+
+            # Capture screenshot
             loop = asyncio.get_event_loop()
-            img_b64, img_w, img_h = await loop.run_in_executor(
-                None, _take_screenshot_b64, mon
+            img = await loop.run_in_executor(None, _capture_screen_pil, mon)
+
+            prompt = (
+                f"You are a computer vision assistant. Look at this desktop screenshot and find: "
+                f'"{description}"\n\n'
+                f"Return ONLY a JSON object with the normalized bounding box in 0..1000 coordinates:\n"
+                f'{{"bbox": [ymin, xmin, ymax, xmax]}}\n'
+                f"where 0 is top/left edge and 1000 is bottom/right edge of the screen."
             )
 
-            # Ask Gemini to locate the element
-            bbox = await loop.run_in_executor(
-                None, _gemini_locate_element, img_b64, description, api_key
-            )
+            res = await vision_client.describe_image(img, prompt=prompt)
+            if not res.get("success"):
+                return ToolResult(
+                    success=False, data=None,
+                    error=res.get("error", f"Vision provider failed to process screen image.")
+                )
+
+            bbox = _extract_bbox(res.get("description", ""))
 
             if not bbox:
                 return ToolResult(
                     success=False, data=None,
-                    error=f"Gemini could not locate '{description}' on screen."
+                    error=f"Could not locate '{description}' on screen. Vision output: {res.get('description', '')[:200]}"
                 )
 
             # Map bbox → screen coords
