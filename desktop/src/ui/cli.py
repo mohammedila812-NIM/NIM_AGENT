@@ -291,18 +291,28 @@ async def run_cli():
                     console.print("[dim]Tip: You can set a custom token with: /bridge set <token>[/dim]")
                 continue
 
-            elif user_input == "/hud":
+            elif user_input in ("/gui", "/hud"):
                 if active_hud is None:
-                    from src.ui.hud.overlay import JarvisHUDOverlay
-                    active_hud = JarvisHUDOverlay(
-                        on_submit_goal=on_hud_submit,
-                        on_cancel_task=cancel_active_task
-                    )
-                    active_hud.start_in_thread()
-                    console.print("[success]✓ NIM JARVIS Floating Desktop HUD Overlay launched![/success]")
-                    console.print("[dim]You can now type goals directly in the HUD or in the CLI.[/dim]")
+                    try:
+                        from src.ui.gui.app import launch_gui
+                        import threading
+                        gui_thread = threading.Thread(
+                            target=launch_gui,
+                            kwargs={
+                                "on_voice_toggle": barge_in_controller.toggle_voice_listener,
+                                "on_command_submit": lambda cmd: asyncio.run_coroutine_threadsafe(
+                                    execute_task_pipeline(cmd), asyncio.get_event_loop()
+                                )
+                            },
+                            daemon=True
+                        )
+                        gui_thread.start()
+                        console.print("[success]✓ NIM JARVIS Holographic Command Interface GUI launched![/success]")
+                        console.print("[dim]Cyberpunk glassmorphic UI active. Press Alt+Space to toggle.[/dim]")
+                    except Exception as ge:
+                        console.print(f"[warning]Could not launch Holographic GUI: {ge}[/warning]")
                 else:
-                    console.print("[info]HUD is already active on screen.[/info]")
+                    console.print("[info]GUI is already active on screen.[/info]")
                 continue
 
             elif user_input.startswith("/mic"):

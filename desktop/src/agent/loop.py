@@ -101,6 +101,8 @@ from src.tools.voice_tools import (
     SetVoicePersonaTool
 )
 from src.bridge.proxy_tools import BrowserResearchTool
+from src.tools.screen_coord_tools import register_screen_coord_tools
+from src.tools.subagent_tools import register_subagent_tools
 from .prompts import SYSTEM_PROMPT, INTENT_CLASSIFICATION_PROMPT
 from .state import TaskState, AgentStep, TaskStatus
 from .memory import get_memory_store
@@ -209,6 +211,8 @@ class AgentOrchestrator:
         ]
         for t in tools:
             self.tool_registry.register(t)
+        register_screen_coord_tools(self.tool_registry)
+        register_subagent_tools(self.tool_registry)
 
     async def classify_intent(self, user_goal: str) -> str:
         """Classifies intent as 'agent' or 'chat' to save unnecessary tool overhead."""

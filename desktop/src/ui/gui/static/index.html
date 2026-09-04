@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NIM JARVIS // Holographic Command Core</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+</head>
+<body>
+    <div id="webgl"><canvas id="bg-canvas"></canvas></div>
+    <div class="scan"></div>
+    <div class="vig"></div>
+
+    <div id="app">
+        <!-- Top Navigation / Telemetry -->
+        <header class="top">
+            <div style="display:flex; align-items:center; gap:12px;">
+                <div class="brand">NIM JARVIS</div>
+                <span id="sys-status-badge">ONLINE // READY</span>
+            </div>
+            <div class="tele">
+                <div>CPU: <strong id="stat-cpu">--%</strong></div>
+                <div>RAM: <strong id="stat-ram">--%</strong></div>
+                <div>BLACKBOARD: <strong id="stat-bb-count">0</strong> findings</div>
+                <div>VOICE: <strong id="stat-voice-mode">BASE-ACCENT</strong></div>
+            </div>
+            <div class="buttons">
+                <button class="btn" id="btn-clear-logs">Clear Logs</button>
+                <button class="btn" id="btn-anchors">Anchors</button>
+                <button class="btn" id="btn-subagents">SubAgents</button>
+            </div>
+        </header>
+
+        <!-- Left Column: System & Subagents Status -->
+        <aside class="side left">
+            <div class="panel">
+                <div class="title">SubAgent Swarm</div>
+                <div class="data" id="subagent-swarm-status">
+                    <span>Research Agent:</span> <b id="sa-research-status">IDLE</b>
+                    <span>Perception Agent:</span> <b id="sa-perception-status">IDLE</b>
+                    <span>System Agent:</span> <b id="sa-system-status">IDLE</b>
+                    <span>Doc Specialist:</span> <b id="sa-doc-status">IDLE</b>
+                    <span>Actuation Worker:</span> <b id="sa-actuation-status">IDLE</b>
+                </div>
+                <div class="bar"><i id="budget-bar" style="width: 100%;"></i></div>
+                <div style="font: 10px Consolas; color: var(--m); display:flex; justify-content:space-between;">
+                    <span>Token Budget:</span>
+                    <span id="token-budget-val">200k left</span>
+                </div>
+            </div>
+
+            <div class="panel" style="flex: 1; display:flex; flex-direction:column;">
+                <div class="title">Blackboard Live Feed</div>
+                <div class="events" id="blackboard-feed">
+                    <div><strong>[INIT]</strong> Blackboard memory initialized.</div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Center Column: Holographic Core / Command Console -->
+        <main class="core">
+            <div class="reactor-readout">
+                <div class="holo-card" style="top: 10px; left: 10px;">
+                    <div>ACCENT ENG:</div>
+                    <strong style="color:var(--i)">IND-ENG v3</strong>
+                </div>
+                <div class="holo-card" style="top: 10px; right: 10px;">
+                    <div>COORD DPI:</div>
+                    <strong style="color:var(--i)" id="coord-dpi-val">1.0x (1:1)</strong>
+                </div>
+                <div class="holo-card" style="bottom: 10px; left: 10px;">
+                    <div>VAD ENGINE:</div>
+                    <strong style="color:var(--i)">SILERO ONNX</strong>
+                </div>
+                <div class="holo-card" style="bottom: 10px; right: 10px;">
+                    <div>AUTONOMY:</div>
+                    <strong style="color:var(--i)">FULL SWARM</strong>
+                </div>
+            </div>
+
+            <div class="copy">
+                <h1>NIM CORE</h1>
+                <p id="core-subtext">NEURAL DESKTOP OPERATING INTELLIGENCE</p>
+            </div>
+
+            <!-- Voice & Command Bar -->
+            <div class="voice">
+                <button id="voice-mic-btn" class="btn" title="Toggle Voice Recognition">🎙️</button>
+                <div class="state" id="voice-status-text">Ready. Speak naturally or type command below.</div>
+                <input type="text" id="cmd-input" class="input" placeholder="Enter instruction for JARVIS swarm..." autofocus>
+                <button id="btn-exec-cmd" class="btn">EXECUTE</button>
+            </div>
+        </main>
+
+        <!-- Right Column: Live Logs & Screen Tools -->
+        <aside class="side right">
+            <div class="panel">
+                <div class="title">Perception & Coords</div>
+                <div class="data">
+                    <span>Active Mon:</span> <b id="mon-info">Display 1 (Primary)</b>
+                    <span>Calibrated:</span> <b id="cal-status">READY</b>
+                    <span>Anchors:</span> <b id="anchor-count">0 Saved</b>
+                </div>
+                <div style="margin-top:8px; display:flex; gap:6px;">
+                    <button class="btn" style="flex:1; font-size:10px;" id="btn-quick-calibrate">Calibrate</button>
+                    <button class="btn" style="flex:1; font-size:10px;" id="btn-list-mon">Monitors</button>
+                </div>
+            </div>
+
+            <div class="panel" style="flex: 1; display:flex; flex-direction:column;">
+                <div class="title">Agent Event Stream</div>
+                <div class="events" id="agent-log-feed">
+                    <div><strong>[SYSTEM]</strong> NIM JARVIS v1.1.0 Ready.</div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Bottom Status Bar -->
+        <footer class="bottom">
+            <div style="color:var(--m); font:10px Consolas;">NIM PROTOCOL: ACTIVE // SECURE CONTEXT ENGINE</div>
+            <div style="color:var(--m); font:10px Consolas;">SHORTCUT: ALT+SPACE TO TOGGLE // ALT+M FOR MIC</div>
+        </footer>
+    </div>
+
+    <div id="toasts"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>
