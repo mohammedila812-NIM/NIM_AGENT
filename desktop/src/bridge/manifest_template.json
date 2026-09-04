@@ -1,0 +1,10 @@
+{
+  "name": "com.nim_agent.desktop",
+  "description": "NIM Agent Native Desktop Bridge Host",
+  "path": "nim_bridge_host.exe",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://mohammedila812nimagent/",
+    "chrome-extension://*"
+  ]
+}

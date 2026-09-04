@@ -68,18 +68,23 @@ class NotifyUserTool(BaseTool):
         message = str(args.get("message", ""))
         try:
             if platform.system() == "Windows":
-                # Safely escape single quotes for PowerShell literal string encapsulation
-                escaped_title = title.replace("'", "''").replace("`", "``").replace("$", "`$")
-                escaped_msg = message.replace("'", "''").replace("`", "``").replace("$", "`$")
+                import base64
                 import subprocess
+                b64_title = base64.b64encode(title.encode("utf-8")).decode("ascii")
+                b64_msg = base64.b64encode(message.encode("utf-8")).decode("ascii")
                 ps_script = f"""
                 [reflection.assembly]::loadwithpartialname('System.Windows.Forms') | Out-Null
                 $notify = new-object system.windows.forms.notifyicon
                 $notify.icon = [system.drawing.systemicons]::Information
                 $notify.visible = $true
-                $notify.showballoontip(5000, '{escaped_title}', '{escaped_msg}', [system.windows.forms.tooltipicon]::Info)
+                $t = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('{b64_title}'))
+                $m = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('{b64_msg}'))
+                $notify.showballoontip(5000, $t, $m, [system.windows.forms.tooltipicon]::Info)
                 """
-                subprocess.Popen(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_script], creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0)
+                subprocess.Popen(
+                    ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_script],
+                    creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0
+                )
 
             return ToolResult(success=True, data={"notified": True, "title": title, "message": message})
         except Exception as e:

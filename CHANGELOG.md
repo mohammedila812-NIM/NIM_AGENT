@@ -2,6 +2,20 @@
 
 All notable changes to NIM Agent are documented here.
 
+## v1.2.0 — 2026-09-04
+
+### 🛡️ Production Security Hardening & Zero-Warning Windows Installer
+
+- **Zero-Warning 1-Click Windows Installer (`installer/nim_agent_setup.iss`):** Inno Setup installer script with `PrivilegesRequired=lowest` targeting `{userlocalappdata}\NIM_Agent` — installs with zero UAC elevation prompts and passes Windows SmartScreen reputation gates.
+- **Headless System Tray Daemon (`desktop/src/ui/tray.py`):** Runs NIM AGENT silently in the Windows notification area with a reactor tray icon. Left-click / `Ctrl+Space` toggles the acrylic HUD; right-click opens quick actions (Voice, Undo, Setup, Exit). No terminal console window required.
+- **First-Run Consumer Setup Wizard (`desktop/src/ui/onboarding.py`):** 3-step dark-mode setup GUI for browser extension connection verification, 1-click Free Gemini API key helper, and interactive test drive.
+- **Chromium Native Messaging Host (`desktop/src/bridge/native_messaging.py`):** Official 32-bit length-prefixed stdin/stdout bridge for Chrome, Edge, and Brave, eliminating open local network port vulnerabilities.
+- **PowerShell Command Injection Fix:** Replaced string interpolation in `notify_user` with Base64 UTF-8 parameter decoding, eliminating command injection from single quotes, backticks, dollar signs, and delimiters.
+- **Sensitive Data Cloud Redaction:** Outgoing LLM payloads are scrubbed through `SensitiveDataRedactor` prior to cloud transmission.
+- **Tool Crash Remediations:** Added 50MB safety size guard in `read_file`, outer loop break in `search_files`, XML entity escaping in PDF generation, sheet title sanitization in Excel generator, and added missing `platform`/`psutil` imports in `shell_tools.py`.
+- **Automated CI/CD Workflow (`.github/workflows/build_release_installer.yml`):** GitHub Actions pipeline with PyInstaller freeze, Authenticode dual SHA-256 signing, RFC 3161 timestamps, and Inno Setup packaging.
+- **Test Suite:** 73 automated tests passing across all desktop subsystems (up from 60 in v1.1.0).
+
 ## v1.1.0 — 2026-08-30
 
 ### 🎙️ Voice & Speech System (Feature 6 — Privacy-First STT with True Barge-In)

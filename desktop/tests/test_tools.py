@@ -121,3 +121,78 @@ async def test_run_command_tool():
     res = await cmd_tool.execute({"command": "echo 'JARVIS Active'"}, context)
     assert res.success is True
     assert "JARVIS Active" in res.data["stdout"]
+
+@pytest.mark.asyncio
+async def test_notify_user_injection_safety():
+    from src.tools.system_tools import NotifyUserTool
+    notify_tool = NotifyUserTool()
+    context = ToolContext(task_id="test_notify")
+    # Test title and message with quotes, backticks, dollar signs, and semicolons
+    res = await notify_tool.execute({
+        "title": "Alert's `test` $PATH",
+        "message": "Special 'quote' & ; Start-Process calc.exe; \n newline"
+    }, context)
+    assert res.success is True
+    assert res.data["notified"] is True
+
+@pytest.mark.asyncio
+async def test_generate_documents_edge_cases():
+    from src.tools.doc_tools import GenerateDocumentTool
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        context = ToolContext(task_id="test_doc_edge")
+        doc_tool = GenerateDocumentTool()
+
+        # 1. PDF with XML special characters
+        pdf_path = tmp_path / "edge.pdf"
+        pdf_res = await doc_tool.execute({
+            "file_path": str(pdf_path),
+            "doc_type": "pdf",
+            "title": "Q&A <Review> & Insights",
+            "sections": [
+                {
+                    "heading": "Terms & Conditions",
+                    "content": "Value > 100 & Value < 500",
+                    "bullet_points": ["Item A & B", "Price < $50"],
+                    "table_data": [["Col & 1", "Col < 2"], [100, 200]]
+                }
+            ]
+        }, context)
+        assert pdf_res.success is True
+        assert pdf_path.exists()
+
+        # 2. Markdown with non-string cells
+        md_path = tmp_path / "edge.md"
+        md_res = await doc_tool.execute({
+            "file_path": str(md_path),
+            "doc_type": "md",
+            "title": "Numeric Markdown",
+            "sections": [
+                {
+                    "heading": "Stats",
+                    "content": "Numeric table below",
+                    "table_data": [["Metric", "Value", "Active"], ["Count", 42, True], ["Rate", 3.14, False]]
+                }
+            ]
+        }, context)
+        assert md_res.success is True
+        assert md_path.exists()
+        md_content = md_path.read_text(encoding="utf-8")
+        assert "| 42 | True |" in md_content
+
+        # 3. Excel with invalid sheet characters
+        xlsx_path = tmp_path / "edge.xlsx"
+        xlsx_res = await doc_tool.execute({
+            "file_path": str(xlsx_path),
+            "doc_type": "xlsx",
+            "title": "Sales: 2026/Q1 [Final]*?",
+            "sections": [
+                {
+                    "heading": "Summary: Region/East",
+                    "content": "Data summary",
+                    "table_data": [["A", "B"], [1, 2]]
+                }
+            ]
+        }, context)
+        assert xlsx_res.success is True
+        assert xlsx_path.exists()

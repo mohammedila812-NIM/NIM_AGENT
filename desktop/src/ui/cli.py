@@ -174,6 +174,18 @@ async def run_cli():
                         active_hud.set_mode("idle")
                         active_hud.update_thought(f"Completed: {(final_ans or 'Task Done')[:100]}")
                         active_hud.update_badges(["Completed", "Online"])
+                elif ev_type == "task_failed":
+                    final_ans = ev.get("final_answer", "")
+                    err_detail = ev.get("error", "Task failed")
+                    console.print("\n" + "="*50)
+                    console.print(f"[danger]❌ {err_detail}[/danger]")
+                    if final_ans:
+                        console.print(Markdown(final_ans))
+                    console.print("="*50)
+                    if active_hud:
+                        active_hud.set_mode("error")
+                        active_hud.update_thought(f"Failed: {err_detail[:80]}")
+                        active_hud.update_badges(["Failed", "Error"])
                 elif ev_type == "task_cancelled":
                     console.print("\n[bold red]⛔ Task execution was cancelled.[/bold red]")
                     if active_hud:

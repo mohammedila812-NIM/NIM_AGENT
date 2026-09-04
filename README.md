@@ -125,7 +125,8 @@ pytest tests/ -v
 
 ## 📦 Releases
 
-- **[Latest Release (v1.1.0)](https://github.com/mohammedila812-NIM/NIM_AGENT/releases):** Adds privacy-first voice input, true TTS barge-in, refreshed desktop HUD telemetry, Gemini-first vision fallback, and 60 passing desktop subsystem tests.
+- **[Latest Release (v1.2.0)](https://github.com/mohammedila812-NIM/NIM_AGENT/releases):** Production security hardening, zero-warning 1-click Windows installer (`NIM_Agent_Setup.exe`), headless System Tray daemon, first-run onboarding wizard, native messaging bridge, and 73 passing subsystem tests.
+- **v1.1.0:** Adds privacy-first voice input, true TTS barge-in, refreshed desktop HUD telemetry, Gemini-first vision fallback, and 60 passing desktop subsystem tests.
 - **v1.0.0:** Full Windows Desktop Automation Suite, Actuation, Process Monitor, Converter, Scheduler, Outlook, Global ESC Kill-Switch, and Chrome Extension Bridge.
 - **[Changelog](CHANGELOG.md):** Complete chronological log of features and fixes.
 

@@ -44,6 +44,15 @@ class ReadFileTool(BaseTool):
         start_line = max(1, int(args.get("start_line", 1)))
 
         try:
+            # Prevent reading giant binary or log files (> 50MB) into memory
+            file_size = file_path.stat().st_size
+            if file_size > 50_000_000:
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    error=f"File is too large ({round(file_size / (1024*1024), 2)}MB). Max supported file read size is 50MB."
+                )
+
             selected_lines = []
             total_lines = 0
             with open(file_path, "r", encoding="utf-8", errors="replace") as f:

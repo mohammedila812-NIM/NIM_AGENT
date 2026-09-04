@@ -1,8 +1,10 @@
 import asyncio
 import logging
 import os
+import platform
 import subprocess
 from typing import Any, Dict, Optional
+import psutil
 from .base import BaseTool, ToolContext, ToolResult
 from src.security.guard import ActionRiskLevel, SecurityGuard
 

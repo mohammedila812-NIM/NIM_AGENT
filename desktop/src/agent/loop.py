@@ -435,6 +435,22 @@ class AgentOrchestrator:
                     ))
 
             state.status = TaskStatus.FAILED
-            yield {"event": "task_completed", "final_answer": "Max iterations reached without resolution.", "task_id": t_id}
+            state.error = "Max iterations reached without resolution."
+            self.memory_store.record_task(
+                task_id=t_id,
+                goal=goal,
+                summary="Max iterations reached without resolution.",
+                status="failed",
+                steps_count=len(state.steps),
+                tokens=state.prompt_tokens + state.completion_tokens
+            )
+            yield {
+                "event": "task_failed",
+                "final_answer": "Max iterations reached without resolution.",
+                "task_id": t_id,
+                "error": "Max iterations reached without resolution.",
+                "tokens": state.prompt_tokens + state.completion_tokens,
+                "cost_usd": state.estimated_usd_cost
+            }
         finally:
             self.is_busy = False
