@@ -219,17 +219,20 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   const toggleVoiceInput = async () => {
     const recognizer = speechRecognizer.current;
     if (isListening) {
-      recognizer.stop();
+      setVoiceNotice({ text: '⏳ Transcribing audio...', type: 'info' });
+      await recognizer.stop();
       setIsListening(false);
-      setVoiceNotice(null);
     } else {
-      setVoiceNotice({ text: '🎙️ Listening... Speak your prompt naturally.', type: 'info' });
+      setVoiceNotice({ text: '🎙️ Listening... Speak naturally, then click mic to finish.', type: 'info' });
       const ok = await recognizer.start({
         onStart: () => {
           setIsListening(true);
         },
         onInterim: (text: string) => {
           setInput(text);
+        },
+        onTranscribing: () => {
+          setVoiceNotice({ text: '⏳ Transcribing audio...', type: 'info' });
         },
         onResult: (text: string) => {
           setInput(text);
@@ -246,7 +249,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
             });
           } else {
             setVoiceNotice({
-              text: `Voice input notice: ${err}`,
+              text: `Voice notice: ${err}`,
               type: 'error',
             });
           }
