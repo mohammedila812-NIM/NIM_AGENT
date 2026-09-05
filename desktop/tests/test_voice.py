@@ -162,3 +162,27 @@ async def test_voice_tools_execution():
         assert res4.success is True
         assert res4.data["transcript"] == "Organize downloads"
 
+
+def test_clean_hallucinated_repetitions():
+    from src.voice.stt import clean_hallucinated_repetitions
+
+    # 1. Test massive Whisper repetition loop (the user's exact case)
+    sample_loop = (
+        "Open brief with Instagram, open brief with Instagram, open brief with Instagram, open brief "
+        "with Instagram, open brief with Instagram, open brief with Instagram, open brief with Instagram, open brief with "
+        "Instagram, open brief with Instagram, open brief with Instagram, open brief with Instagram, open brief with Instagram, "
+        "Instagram, open brief with, Instagram, open brief with, Instagram, open"
+    )
+    cleaned = clean_hallucinated_repetitions(sample_loop)
+    assert cleaned == "Open brief with Instagram"
+
+    # 2. Test silence hallucinations
+    assert clean_hallucinated_repetitions("Thank you for watching.") == ""
+    assert clean_hallucinated_repetitions("Thanks for watching!") == ""
+    assert clean_hallucinated_repetitions("Please subscribe.") == ""
+    assert clean_hallucinated_repetitions("[Music]") == ""
+
+    # 3. Test normal multi-clause non-repetitive sentence is preserved
+    normal = "Open WhatsApp and send message to John"
+    assert clean_hallucinated_repetitions(normal) == normal
+

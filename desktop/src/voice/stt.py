@@ -93,6 +93,96 @@ def normalize_accent_phonetics(text: str) -> str:
     return result
 
 
+def clean_hallucinated_repetitions(text: str) -> str:
+    """
+    Eliminates Whisper hallucination loops, autoregressive token repetitions,
+    and trailing broken phrases (e.g. 'Open brief with Instagram, open brief with Instagram...').
+    """
+    if not text:
+        return ""
+    
+    text = text.strip()
+    
+    # 1. Filter known Whisper silence / background noise hallucinations
+    hallucination_patterns = [
+        r"^(thank\s+you\s+(for\s+watching|very\s+much)[\.\!\?]?)$",
+        r"^(thanks\s+for\s+watching[\.\!\?]?)$",
+        r"^(please\s+(like\s+and\s+)?subscribe[\.\!\?]?)$",
+        r"^(subtitles\s+by.*)$",
+        r"^(\[.*\]|\(.*\))$",
+        r"^(\.+|\-+|\*+)$",
+    ]
+    for hp in hallucination_patterns:
+        if re.match(hp, text, flags=re.IGNORECASE):
+            return ""
+
+    # 2. Collapse repeated clauses separated by punctuation (commas, periods, semicolons, newlines)
+    clauses = [c.strip() for c in re.split(r"[,;\.\n]+", text) if c.strip()]
+    if clauses:
+        unique_clauses = []
+        last_norm = None
+        for clause in clauses:
+            norm = re.sub(r"[^\w\s]", "", clause).strip().lower()
+            if not norm:
+                continue
+            if norm != last_norm:
+                unique_clauses.append(clause)
+                last_norm = norm
+        if len(unique_clauses) < len(clauses):
+            if len(unique_clauses) == 1:
+                text = unique_clauses[0]
+            else:
+                text = ", ".join(unique_clauses)
+
+    # 3. Collapse consecutive repeating word sequences (n-grams from 1 up to 15 words)
+    words = text.split()
+    n = len(words)
+    changed = True
+    passes = 0
+    while changed and passes < 5:
+        changed = False
+        passes += 1
+        for k in range(min(15, len(words) // 2), 0, -1):
+            i = 0
+            new_words = []
+            while i < len(words):
+                if i + 2 * k <= len(words):
+                    chunk1 = [re.sub(r"[^\w]", "", w).lower() for w in words[i:i+k]]
+                    chunk2 = [re.sub(r"[^\w]", "", w).lower() for w in words[i+k:i+2*k]]
+                    if chunk1 == chunk2 and any(chunk1):
+                        new_words.extend(words[i:i+k])
+                        i += k
+                        while i + k <= len(words):
+                            next_chunk = [re.sub(r"[^\w]", "", w).lower() for w in words[i:i+k]]
+                            if next_chunk == chunk1:
+                                i += k
+                            else:
+                                break
+                        changed = True
+                        continue
+                new_words.append(words[i])
+                i += 1
+            words = new_words
+
+    res = " ".join(words).strip()
+    
+    # 4. Strip trailing broken cyclic fragments if all trailing words come from the main sentence
+    parts = [p.strip() for p in re.split(r"[,;\.\n]+", res) if p.strip()]
+    if len(parts) > 1:
+        first_part_words = set(re.sub(r"[^\w\s]", "", parts[0]).lower().split())
+        cleaned_parts = [parts[0]]
+        for part in parts[1:]:
+            part_words = set(re.sub(r"[^\w\s]", "", part).lower().split())
+            if part_words.issubset(first_part_words) and len(part.split()) <= len(parts[0].split()):
+                continue
+            cleaned_parts.append(part)
+        res = ", ".join(cleaned_parts)
+
+    res = re.sub(r"\s*,\s*", ", ", res)
+    res = re.sub(r"[,;\s]+$", "", res).strip()
+    return res
+
+
 # ── result dataclass ──────────────────────────────────────────────────────────
 @dataclass
 class TranscriptResult:
@@ -186,7 +276,7 @@ class WhisperSTTEngine:
         pcm_bytes: bytes,
         sample_rate: int = 16000,
     ) -> Optional[TranscriptResult]:
-        """Transcribes raw 16-bit mono PCM → TranscriptResult with accent normalization."""
+        """Transcribes raw 16-bit mono PCM → TranscriptResult with accent normalization & deduplication."""
         min_bytes = int(sample_rate * 0.25) * 2  # ignore < 250ms
         if not pcm_bytes or len(pcm_bytes) < min_bytes:
             return None
@@ -194,7 +284,7 @@ class WhisperSTTEngine:
         import time
         t0 = time.perf_counter()
 
-        # ── 1. Local Whisper with Accent Prompt Priming ──────────────────
+        # ── 1. Local Whisper with Accent Prompt Priming & Repetition Guards ──
         if self._ensure_model_loaded() and self._model and _HAS_NUMPY:
             try:
                 audio = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32768.0
@@ -209,6 +299,11 @@ class WhisperSTTEngine:
                     vad_parameters={"min_silence_duration_ms": 250},
                     condition_on_previous_text=False,
                     word_timestamps=False,
+                    repetition_penalty=1.2,
+                    no_repeat_ngram_size=3,
+                    compression_ratio_threshold=2.4,
+                    log_prob_threshold=-1.0,
+                    no_speech_threshold=0.6,
                 )
                 collected: List[str] = []
                 for seg in segments:
@@ -216,10 +311,13 @@ class WhisperSTTEngine:
                     if text:
                         collected.append(text)
                         if self.on_partial:
-                            self.on_partial(normalize_accent_phonetics(" ".join(collected)))
+                            partial_clean = clean_hallucinated_repetitions(normalize_accent_phonetics(" ".join(collected)))
+                            if partial_clean:
+                                self.on_partial(partial_clean)
 
                 raw_text = " ".join(collected).strip()
-                full_text = normalize_accent_phonetics(raw_text)
+                cleaned_text = clean_hallucinated_repetitions(raw_text)
+                full_text = normalize_accent_phonetics(cleaned_text)
                 latency_ms = (time.perf_counter() - t0) * 1000
                 self._transcription_count += 1
                 self._avg_latency_ms = (
@@ -241,15 +339,18 @@ class WhisperSTTEngine:
         # ── 2. Cloud Gemini Multimodal Audio Fallback ────────────────────
         gemini_res = _gemini_multimodal_transcribe(pcm_bytes, sample_rate)
         if gemini_res:
-            return gemini_res
+            gemini_res.text = clean_hallucinated_repetitions(gemini_res.text)
+            if gemini_res.text:
+                return gemini_res
 
         # ── 3. Vosk Offline Fallback ────────────────────────────────────
         if _HAS_VOSK:
             try:
                 result = _vosk_transcribe(pcm_bytes, sample_rate)
                 if result:
-                    result.text = normalize_accent_phonetics(result.text)
-                    return result
+                    result.text = clean_hallucinated_repetitions(normalize_accent_phonetics(result.text))
+                    if result.text:
+                        return result
             except Exception as e:
                 logger.warning("Vosk fallback error: %s", e)
 
@@ -258,8 +359,9 @@ class WhisperSTTEngine:
             try:
                 result = _google_transcribe(pcm_bytes, sample_rate)
                 if result:
-                    result.text = normalize_accent_phonetics(result.text)
-                    return result
+                    result.text = clean_hallucinated_repetitions(normalize_accent_phonetics(result.text))
+                    if result.text:
+                        return result
             except Exception as e:
                 logger.debug("Google STT fallback error: %s", e)
 
