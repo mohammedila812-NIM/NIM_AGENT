@@ -16,6 +16,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
+.venv/
+venv/
 *.sqlite
 *.sqlite3
 *.db
@@ -24,6 +26,7 @@ desktop/dist/
 desktop/build/
 dist_installer/
 *.spec
+*.zip
 
 # Local configuration and secrets
 .env

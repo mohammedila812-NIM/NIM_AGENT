@@ -40,7 +40,7 @@ async def run_cli():
         console.print(f"[warning]Warning: Could not start Bridge Server on default port: {e}[/warning]")
 
     console.print(Panel.fit(
-        "[bold cyan]⚡ NIM JARVIS Desktop v1.1.0 — Autonomous OS AI Partner[/bold cyan]\n"
+        "[bold cyan]⚡ NIM JARVIS Desktop v1.2.0 — Autonomous OS AI Partner[/bold cyan]\n"
         "[dim]Holographic GUI • Subagent Swarms • Accent-Tolerant Voice v3 • DPI Screen Grounding[/dim]\n\n"
         "Commands:\n"
         "  • Type any goal/task to execute (e.g. 'Spawn subagents to analyze the project codebase')\n"
@@ -57,7 +57,7 @@ async def run_cli():
         "  • [yellow]/bridge[/yellow] — View WebSocket browser bridge status & pairing token\n"
         "  • [yellow]/tools[/yellow] — View registered tools (vision, subagents, coords, OS, documents)\n"
         "  • [yellow]/exit[/yellow] — Quit",
-        title="🤖 NIM JARVIS v1.1.0",
+        title="🤖 NIM JARVIS v1.2.0",
         border_style="cyan"
     ))
 
@@ -308,8 +308,11 @@ async def run_cli():
                 try:
                     import subprocess
                     from pathlib import Path
-                    main_py = Path(__file__).resolve().parent.parent / "main.py"
-                    subprocess.Popen([sys.executable, str(main_py), "--gui"])
+                    if getattr(sys, "frozen", False):
+                        subprocess.Popen([sys.executable, "--gui"])
+                    else:
+                        main_py = Path(__file__).resolve().parent.parent / "main.py"
+                        subprocess.Popen([sys.executable, str(main_py), "--gui"])
                     console.print("[success]✓ NIM JARVIS Holographic Command Interface GUI launched![/success]")
                     console.print("[dim]Cyberpunk glassmorphic UI active. Press Alt+Space to toggle.[/dim]")
                 except Exception as ge:

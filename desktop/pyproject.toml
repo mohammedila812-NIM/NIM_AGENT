@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nim-jarvis-desktop"
-version = "1.1.0"
+version = "1.2.0"
 description = "JARVIS Desktop AI Automation System - Native OS Partner for NIM Agent"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -46,4 +46,10 @@ nim-jarvis = "src.main:main"
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["."]
-
+filterwarnings = [
+    "ignore::DeprecationWarning:speech_recognition.*",
+    "ignore::DeprecationWarning:pygame.*",
+    "ignore::DeprecationWarning:pkg_resources.*",
+    "ignore::DeprecationWarning:google.*",
+    "ignore::DeprecationWarning:mpl_toolkits.*"
+]

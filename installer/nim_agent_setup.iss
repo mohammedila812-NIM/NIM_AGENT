@@ -4,7 +4,7 @@
 ; ==============================================================================
 
 #define MyAppName "NIM AGENT"
-#define MyAppVersion "1.1.0"
+#define MyAppVersion "1.2.0"
 #define MyAppPublisher "Mohammed Ali"
 #define MyAppURL "https://github.com/mohammedila812-NIM/NIM_AGENT"
 #define MyAppExeName "NIM_Agent.exe"
