@@ -18,7 +18,7 @@ PROVIDER_PRESETS: List[ProviderConfig] = [
         id="gemini",
         label="Google AI Studio (Gemini API)",
         base_url="https://generativelanguage.googleapis.com/v1beta/openai",
-        default_model="models/gemini-2.0-flash"
+        default_model="gemini-3.6-flash"
     ),
     ProviderConfig(
         id="openai",

@@ -161,10 +161,10 @@ export async function transcribeAudioBlob(blob: Blob): Promise<string> {
         }
       }
 
-      // Gemini 2.0 Flash Audio Transcription
+      // Gemini 3.6 Flash Audio Transcription
       if (type === 'gemini' || key.startsWith('AIzaSy')) {
         const base64Audio = await blobToBase64(blob);
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${key}`;
         const res = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -183,6 +183,7 @@ export async function transcribeAudioBlob(blob: Blob): Promise<string> {
           if (text) return text.trim();
         }
       }
+
 
       // OpenAI Whisper
       if (type === 'openai' || key.startsWith('sk-')) {

@@ -146,18 +146,30 @@ def clean_hallucinated_repetitions(text: str) -> str:
     
     text = text.strip()
     
-    # 1. Filter known Whisper silence / background noise hallucinations
+    # 1. Filter known Whisper silence / background video noise hallucinations & casual non-command fillers
     hallucination_patterns = [
-        r"^(thank\s+you\s+(for\s+watching|very\s+much)[\.\!\?]?)$",
-        r"^(thanks\s+for\s+watching[\.\!\?]?)$",
-        r"^(please\s+(like\s+and\s+)?subscribe[\.\!\?]?)$",
-        r"^(subtitles\s+by.*)$",
+        r"(?i)^(thank\s+you\s+(for\s+watching|very\s+much|for\s+your\s+time)[\.\!\?]?)$",
+        r"(?i)^(thanks\s+for\s+watching[\.\!\?]?)$",
+        r"(?i)^(thank\s+you[\.\!\?]?)$",
+        r"(?i)^(thanks[\.\!\?]?)$",
+        r"(?i)^(please\s+(like\s+and\s+)?subscribe[\.\!\?]?)$",
+        r"(?i)^(subscribe\s+to\s+my\s+channel.*)$",
+        r"(?i)^(see\s+you\s+in\s+the\s+next\s+(video|one).*)$",
+        r"(?i)^(that('?s|\s+is)\s+all\s+for\s+(this\s+video|today)[\.\!\?]?)$",
+        r"(?i)^(that('?s|\s+is)\s+it[\.\!\?]?)$",
+        r"(?i)^(subtitles\s+by.*)$",
+        r"(?i)^(have\s+a\s+nice\s+day[\.\!\?]?)$",
+        r"(?i)^(take\s+care[\.\!\?]?)$",
+        r"(?i)^(take\s+care[,\s]+love\s+you[\.\!\?]?)$",
+        r"(?i)^(ha-?ha[\s,ha-]*)$",
+        r"(?i)^(um[\.\!\?]?|uh[\.\!\?]?|ah[\.\!\?]?|huh[\.\!\?]?|bye[\.\!\?]?|so[\.\!\?]?|right[\.\!\?]?)$",
         r"^(\[.*\]|\(.*\))$",
         r"^(\.+|\-+|\*+)$",
     ]
     for hp in hallucination_patterns:
-        if re.match(hp, text, flags=re.IGNORECASE):
+        if re.match(hp, text.strip()):
             return ""
+
 
     # 2. Collapse repeated clauses separated by punctuation (commas, periods, semicolons, newlines)
     clauses = [c.strip() for c in re.split(r"[,;\.\n]+", text) if c.strip()]
@@ -490,7 +502,7 @@ def _get_gemini_api_key() -> Optional[str]:
 
 
 def _gemini_multimodal_transcribe(pcm_bytes: bytes, sample_rate: int = 16000) -> Optional[TranscriptResult]:
-    """Transcribes audio using Gemini 2.0 Flash Multimodal Audio API for human-grade accent fidelity."""
+    """Transcribes audio using Gemini 3.6 Flash Multimodal Audio API for human-grade accent fidelity."""
     if not _HAS_HTTPX:
         return None
     api_key = _get_gemini_api_key()
@@ -500,7 +512,7 @@ def _gemini_multimodal_transcribe(pcm_bytes: bytes, sample_rate: int = 16000) ->
     try:
         wav_bytes = WhisperSTTEngine.pcm_to_wav(pcm_bytes, sample_rate)
         b64_audio = base64.b64encode(wav_bytes).decode("utf-8")
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={api_key}"
         payload = {
             "contents": [
                 {
@@ -508,8 +520,9 @@ def _gemini_multimodal_transcribe(pcm_bytes: bytes, sample_rate: int = 16000) ->
                         {
                             "text": (
                                 "You are a specialized Speech-to-Text transcriber. "
-                                "Accurately transcribe the exact spoken words in this audio clip. "
+                                "Accurately transcribe the exact spoken user command in this audio clip. "
                                 "Handle Indian English accents, rapid phrasing, and technical terms (e.g. WhatsApp, Excel, Chrome, VS Code, Notepad, file manager) with extreme precision. "
+                                "If the audio is just background noise, filler, or a YouTube video outro, output an empty string. "
                                 "Output ONLY the raw transcribed text. Do NOT add notes, greetings, or formatting."
                             )
                         },
@@ -548,6 +561,7 @@ def _gemini_multimodal_transcribe(pcm_bytes: bytes, sample_rate: int = 16000) ->
         logger.debug("Gemini Multimodal STT error: %s", e)
 
     return None
+
 
 
 _vosk_model_instance = None
