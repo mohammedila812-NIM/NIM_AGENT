@@ -118,6 +118,12 @@ class BargeInController:
         if self.on_amplitude:
             self.on_amplitude(level)
 
+    def set_accent(self, accent_name: str) -> bool:
+        """Updates the accent conditioning profile on the underlying STT engine."""
+        if hasattr(self.stt_engine, "set_accent"):
+            return self.stt_engine.set_accent(accent_name)
+        return False
+
     def get_status(self) -> dict:
         return {
             "listener_active": self._enabled,
@@ -125,6 +131,7 @@ class BargeInController:
             "stt": self.stt_engine.get_status() if hasattr(self.stt_engine, "get_status") else {},
             "voice": self.voice_engine.voice_name,
         }
+
 
 
 # Backward compatibility alias

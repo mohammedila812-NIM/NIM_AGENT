@@ -62,14 +62,39 @@ except ImportError:
 
 
 # ── Accent Conditioning Prompt & Phonetic Dictionary ──────────────────────────
-INDIAN_ACCENT_INITIAL_PROMPT = (
-    "Jarvis, please open WhatsApp, Excel sheet, Chrome browser, VS Code, "
-    "Notepad, terminal, file manager, YouTube, calculate, summarize document, "
-    "check screen coordinates, run subagent, organize downloads, write email, "
-    "PowerPoint presentation, Outlook mail, Task Manager, close window, kill process, "
-    "open application, take screenshot, search web, copy file, move file, delete file, "
-    "Instagram, Facebook, Twitter, LinkedIn, Telegram, Discord, Zoom, Teams."
-)
+ACCENT_PROFILES: dict[str, str] = {
+    "indian": (
+        "Jarvis, please open WhatsApp, Excel sheet, Chrome browser, VS Code, "
+        "Notepad, terminal, file manager, YouTube, calculate, summarize document, "
+        "check screen coordinates, run subagent, organize downloads, write email, "
+        "PowerPoint presentation, Outlook mail, Task Manager, close window, kill process, "
+        "open application, take screenshot, search web, copy file, move file, delete file, "
+        "Instagram, Facebook, Twitter, LinkedIn, Telegram, Discord, Zoom, Teams, Antigravity."
+    ),
+    "british": (
+        "Jarvis, open the browser, terminal, Visual Studio Code, file explorer, "
+        "summarise document, schedule meeting, check notifications, organise files, "
+        "close window, launch application, capture screen, send email, take screenshot, "
+        "Notepad, Excel spreadsheet, PowerPoint, Antigravity."
+    ),
+    "american": (
+        "Jarvis, open Chrome, Notepad, VS Code, terminal, Excel spreadsheet, "
+        "PowerPoint, Task Manager, kill process, take a screenshot, search Google, "
+        "organize folder, run command, open application, check emails, Antigravity."
+    ),
+    "australian": (
+        "Jarvis, open Chrome browser, terminal, VS Code, file manager, "
+        "summarise report, organise desktop, take screenshot, kill process, "
+        "check schedule, launch application, Antigravity."
+    ),
+    "global": (
+        "Jarvis, open WhatsApp, Excel, Chrome, VS Code, Notepad, terminal, "
+        "YouTube, Instagram, calculate, summarize, screenshot, kill process, "
+        "open application, close application, run subagent, organize files, Antigravity."
+    ),
+}
+
+INDIAN_ACCENT_INITIAL_PROMPT = ACCENT_PROFILES["indian"]
 
 PHONETIC_REPLACEMENTS = [
     (r"\b(watsapp|whats\s*app|wats\s*app)\b", "WhatsApp"),
@@ -214,30 +239,45 @@ class TranscriptResult:
         return bool(self.text.strip())
 
 
+def _auto_detect_device_and_compute() -> tuple[str, str]:
+    """Selects CUDA if available for ultra-fast GPU Whisper, otherwise CPU with int8 quantization."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return "cuda", "float16"
+    except Exception:
+        pass
+    return "cpu", "int8"
+
+
 # ── Whisper engine ────────────────────────────────────────────────────────────
 class WhisperSTTEngine:
     """
     Accent-Tolerant Local Speech-to-Text using faster-whisper with initial_prompt priming.
+    Default model is 'small' (244M params, int8 quantized) for high phonetic accuracy across accents.
     Models downloaded to ~/.nim_jarvis/whisper_models/ on first use.
     """
 
-    DEFAULT_MODEL = "base"
+    DEFAULT_MODEL = "small"
     MODEL_DIR = os.path.join(os.path.expanduser("~"), ".nim_jarvis", "whisper_models")
 
     def __init__(
         self,
         model_name: str = DEFAULT_MODEL,
-        device: str = "cpu",
-        compute_type: str = "int8",
+        device: Optional[str] = None,
+        compute_type: Optional[str] = None,
         language: str = "en",
-        initial_prompt: str = INDIAN_ACCENT_INITIAL_PROMPT,
+        accent: str = "indian",
+        initial_prompt: Optional[str] = None,
         on_partial: Optional[Callable[[str], None]] = None,
     ):
         self.model_name = model_name
-        self.device = device
-        self.compute_type = compute_type
+        auto_dev, auto_comp = _auto_detect_device_and_compute()
+        self.device = device or auto_dev
+        self.compute_type = compute_type or auto_comp
         self.language = language
-        self.initial_prompt = initial_prompt
+        self.active_accent = accent.lower() if accent else "indian"
+        self.initial_prompt = initial_prompt or ACCENT_PROFILES.get(self.active_accent, INDIAN_ACCENT_INITIAL_PROMPT)
         self.on_partial = on_partial
         self._model = None
         self._model_loaded = False
@@ -245,6 +285,17 @@ class WhisperSTTEngine:
         self._avg_latency_ms: float = 0.0
         self._transcription_count: int = 0
         self._lock = threading.Lock()
+
+    def set_accent(self, accent_name: str) -> bool:
+        """Dynamically updates the accent conditioning prompt (indian, british, american, australian, global)."""
+        acc_key = accent_name.lower().strip()
+        if acc_key in ACCENT_PROFILES:
+            self.active_accent = acc_key
+            self.initial_prompt = ACCENT_PROFILES[acc_key]
+            logger.info("🎙️ Whisper accent profile set to: '%s'", acc_key)
+            return True
+        logger.warning("Unknown accent profile '%s'. Available: %s", accent_name, list(ACCENT_PROFILES.keys()))
+        return False
 
     def _ensure_model_loaded(self) -> bool:
         if self._model_loaded:
@@ -256,11 +307,13 @@ class WhisperSTTEngine:
                 return True
             try:
                 os.makedirs(self.MODEL_DIR, exist_ok=True)
-                logger.info("🔊 Loading Accent-Tuned Whisper '%s'...", self.model_name)
+                logger.info("🔊 Loading Accent-Tuned Whisper '%s' on %s (%s)...", self.model_name, self.device, self.compute_type)
+                cpu_threads = min(4, os.cpu_count() or 4) if self.device == "cpu" else 0
                 self._model = _WhisperModel(
                     self.model_name,
                     device=self.device,
                     compute_type=self.compute_type,
+                    cpu_threads=cpu_threads,
                     download_root=self.MODEL_DIR,
                 )
                 self._model_loaded = True
@@ -272,7 +325,7 @@ class WhisperSTTEngine:
                 return False
 
     def switch_model(self, model_name: str) -> bool:
-        """Hot-swap whisper model (tiny / base / small / medium / large-v3-turbo)."""
+        """Hot-swap whisper model (tiny / base / small / medium / large-v3-turbo / distil-large-v3)."""
         with self._lock:
             self._model = None
             self._model_loaded = False
@@ -409,6 +462,9 @@ class WhisperSTTEngine:
         return {
             "backend": f"faster-whisper:{self.model_name}" if self._model_loaded else _detect_backend(),
             "model": self.model_name,
+            "device": self.device,
+            "compute_type": self.compute_type,
+            "accent": self.active_accent,
             "model_loaded": self._model_loaded,
             "load_error": self._load_error,
             "avg_latency_ms": round(self._avg_latency_ms, 1),

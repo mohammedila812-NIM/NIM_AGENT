@@ -150,39 +150,55 @@ class BridgeServer:
                         req_id = payload.get("req_id", "")
                         transcript_text = ""
                         try:
-                            import base64
-                            audio_bytes = base64.b64decode(audio_b64)
+                            import base64 as _b64
+                            import io as _io
+                            import numpy as _np
+                            audio_bytes = _b64.b64decode(audio_b64)
                             from src.voice.stt import get_stt_engine
                             engine = get_stt_engine()
-                            import subprocess
-                            import tempfile
-                            import os
-                            # Write WebM to temp file and convert to 16-bit mono WAV via ffmpeg
-                            with tempfile.NamedTemporaryFile(suffix='.webm', delete=False) as wf:
-                                wf.write(audio_bytes)
-                                webm_path = wf.name
-                            wav_path = webm_path.replace('.webm', '.wav')
+
+                            # Decode WebM/Opus using PyAV (no external ffmpeg needed)
                             try:
-                                subprocess.run(
-                                    [
-                                        'ffmpeg', '-y', '-i', webm_path,
-                                        '-ar', '16000', '-ac', '1',
-                                        '-sample_fmt', 's16', '-f', 'wav', wav_path
-                                    ],
-                                    capture_output=True, timeout=15, check=True
+                                import av as _av
+                                pcm_frames: list = []
+                                container = _av.open(_io.BytesIO(audio_bytes))
+                                audio_stream = next(
+                                    (s for s in container.streams if s.type == 'audio'), None
                                 )
-                                with open(wav_path, 'rb') as rf:
-                                    wav_bytes = rf.read()
-                                # Strip 44-byte WAV header to get raw signed-16 PCM
-                                pcm_bytes = wav_bytes[44:]
+                                if audio_stream is None:
+                                    raise ValueError("No audio stream found in WebM container")
+
+                                resampler = _av.AudioResampler(
+                                    format='s16',
+                                    layout='mono',
+                                    rate=16000,
+                                )
+                                for packet in container.demux(audio_stream):
+                                    for frame in packet.decode():
+                                        resampled = resampler.resample(frame)
+                                        if resampled:
+                                            for rf in (resampled if isinstance(resampled, list) else [resampled]):
+                                                pcm_frames.append(bytes(rf.planes[0]))
+                                # Flush resampler
+                                flushed = resampler.resample(None)
+                                if flushed:
+                                    for rf in (flushed if isinstance(flushed, list) else [flushed]):
+                                        pcm_frames.append(bytes(rf.planes[0]))
+                                container.close()
+
+                                pcm_bytes = b"".join(pcm_frames)
                                 res = engine.transcribe_pcm(pcm_bytes, sample_rate=16000)
                                 transcript_text = res.text if res else ""
-                            finally:
-                                for p in [webm_path, wav_path]:
-                                    try:
-                                        os.unlink(p)
-                                    except OSError:
-                                        pass
+
+                            except Exception as av_err:
+                                logger.warning("PyAV decode failed (%s), trying raw PCM fallback", av_err)
+                                # Last-resort: pass raw bytes to Whisper (works if browser sent WAV)
+                                try:
+                                    res = engine.transcribe_pcm(audio_bytes[44:], sample_rate=16000)
+                                    transcript_text = res.text if res else ""
+                                except Exception:
+                                    transcript_text = ""
+
                         except Exception as stt_err:
                             logger.error("Bridge STT error: %s", stt_err)
                             transcript_text = ""

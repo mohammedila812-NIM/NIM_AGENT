@@ -48,6 +48,7 @@ async def run_cli():
         "  • Type any goal/task to execute (e.g. 'Spawn subagents to analyze the project codebase')\n"
         "  • [yellow]/gui[/yellow] — Launch the Holographic Cyberpunk Command Interface (Alt+Space to toggle)\n"
         "  • [yellow]/mic on|off|status[/yellow] — Toggle ambient neural listening with true barge-in\n"
+        "  • [yellow]/accent <indian|british|american|australian|global>[/yellow] — Set speech accent conditioning profile\n"
         "  • [yellow]/key <provider> <apikey>[/yellow] — Save API key in secure OS Credential Store (e.g. /key gemini AIza...)\n"
         "  • [yellow]/provider <provider_id>[/yellow] — Switch active brain provider (e.g. /provider gemini, /provider nim-cloud)\n"
         "  • [yellow]/model <model_name>[/yellow] — Switch active model (e.g. /model models/gemini-flash-lite-latest)\n"
@@ -370,6 +371,7 @@ async def run_cli():
                         active_hud.set_mode("idle")
                 elif subcmd == "status":
                     status = barge_in_controller.get_status()
+                    stt_info = status.get("stt", {})
                     table = Table(title="Voice & Speech System Status")
                     table.add_column("Subsystem", style="cyan")
                     table.add_column("Property", style="yellow")
@@ -378,11 +380,20 @@ async def run_cli():
                     table.add_row("TTS", "Persona / Voice", f"{status.get('voice')} ({voice_engine.voice})")
                     table.add_row("VAD", "Backend", str(status.get("vad", {}).get("backend")))
                     table.add_row("VAD", "Energy Threshold", str(status.get("vad", {}).get("energy_threshold")))
-                    table.add_row("STT", "Backend", str(status.get("stt", {}).get("backend")))
-                    table.add_row("STT", "Model", str(status.get("stt", {}).get("model")))
-                    table.add_row("STT", "Avg Latency", f"{status.get('stt', {}).get('avg_latency_ms', 0)} ms")
-                    table.add_row("STT", "Transcriptions", str(status.get("stt", {}).get("transcriptions", 0)))
+                    table.add_row("STT", "Backend", str(stt_info.get("backend")))
+                    table.add_row("STT", "Model", str(stt_info.get("model")))
+                    table.add_row("STT", "Hardware / Quant", f"{stt_info.get('device', 'cpu').upper()} ({stt_info.get('compute_type', 'int8')})")
+                    table.add_row("STT", "Accent Profile", f"[bold cyan]{stt_info.get('accent', 'indian').upper()}[/bold cyan]")
+                    table.add_row("STT", "Avg Latency", f"{stt_info.get('avg_latency_ms', 0)} ms")
+                    table.add_row("STT", "Transcriptions", str(stt_info.get("transcriptions", 0)))
                     console.print(table)
+                elif subcmd == "accent" and len(parts) > 2:
+                    acc_name = parts[2].strip().lower()
+                    ok = barge_in_controller.set_accent(acc_name)
+                    if ok:
+                        console.print(f"[success]✓ Active STT accent profile set to: [bold]{acc_name}[/bold][/success]")
+                    else:
+                        console.print(f"[warning]Unknown accent profile '{acc_name}'. Options: indian, british, american, australian, global[/warning]")
                 elif subcmd == "model" and len(parts) > 2:
                     m_name = parts[2].strip()
                     console.print(f"[info]Loading Whisper model '[bold]{m_name}[/bold]'...[/info]")
@@ -392,7 +403,16 @@ async def run_cli():
                     else:
                         console.print(f"[warning]Failed to load '{m_name}'. Error: {stt_engine._load_error}[/warning]")
                 else:
-                    console.print("[dim]Usage: /mic on | /mic off | /mic status | /mic model <tiny.en|base.en|small.en>[/dim]")
+                    console.print("[dim]Usage: /mic on | /mic off | /mic status | /mic accent <indian|british|american|australian|global> | /mic model <base|small|large-v3-turbo>[/dim]")
+                continue
+
+            elif user_input.startswith("/accent "):
+                acc_name = user_input.split(" ", 1)[1].strip().lower()
+                ok = barge_in_controller.set_accent(acc_name)
+                if ok:
+                    console.print(f"[success]✓ Active STT accent profile set to: [bold]{acc_name}[/bold][/success]")
+                else:
+                    console.print(f"[warning]Unknown accent profile '{acc_name}'. Options: indian, british, american, australian, global[/warning]")
                 continue
 
             elif user_input.startswith("/persona ") or user_input.startswith("/voice_persona "):
