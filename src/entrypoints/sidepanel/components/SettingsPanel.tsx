@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Key, Globe, Cpu, DollarSign, Save, Check, RefreshCw, Shield, AlertTriangle, Sparkles, Monitor } from 'lucide-react';
+import { Settings, Key, Globe, Cpu, DollarSign, Save, Check, RefreshCw, Shield, AlertTriangle, Sparkles, Monitor, Mic } from 'lucide-react';
 import { PROVIDER_PRESETS } from '../../../lib/llm/providers';
-import { saveProviderKeys, loadProviderKeys, saveWorkerConfig, loadWorkerConfig } from '../../../lib/storage/secure';
+import { saveProviderKeys, loadProviderKeys, saveWorkerConfig, loadWorkerConfig, saveVoiceConfig, loadVoiceConfig } from '../../../lib/storage/secure';
 import { discoverModels, sortModelsForDisplay, isChatModel, type DiscoveredModel } from '../../../lib/llm/model-registry';
 import { DEFAULT_LIMITS, resetDailyCounters, type CostLimits } from '../../../lib/agent/cost-guard';
 import { desktopBridge, DEFAULT_BRIDGE_CONFIG, type DesktopBridgeConfig, type BridgeConnectionState } from '../../../lib/bridge/desktop-bridge';
@@ -17,6 +17,9 @@ export const SettingsPanel: React.FC = () => {
   const [costLimits, setCostLimits] = useState<CostLimits>(DEFAULT_LIMITS);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+
+  // Dedicated Voice / STT API key
+  const [voiceApiKey, setVoiceApiKey] = useState('');
 
   // Desktop Bridge configuration
   const [bridgeConfig, setBridgeConfig] = useState<DesktopBridgeConfig>(DEFAULT_BRIDGE_CONFIG);
@@ -77,6 +80,12 @@ export const SettingsPanel: React.FC = () => {
       if (workerConfig.apiKey) setWorkerApiKey(workerConfig.apiKey);
       if (workerConfig.modelId) setWorkerModelId(workerConfig.modelId);
     }
+
+    // Load dedicated voice config
+    const voiceCfg = await loadVoiceConfig();
+    if (voiceCfg?.voiceApiKey) {
+      setVoiceApiKey(voiceCfg.voiceApiKey);
+    }
   };
 
   const handleFetchModels = async () => {
@@ -125,6 +134,10 @@ export const SettingsPanel: React.FC = () => {
       providerId: workerProviderId,
       apiKey: workerApiKey,
       modelId: workerModelId,
+    });
+
+    await saveVoiceConfig({
+      voiceApiKey,
     });
 
     const chosenModel = models.find((m) => m.id === selectedModelId) || {
@@ -482,6 +495,48 @@ export const SettingsPanel: React.FC = () => {
               </div>
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Voice Input & Whisper STT Fallback Key */}
+      <div className="border-t border-slate-800 pt-4 space-y-3">
+        <div className="flex items-center gap-1.5 font-semibold text-slate-200">
+          <Mic className="w-3.5 h-3.5 text-brand-400" />
+          <span>🎙️ Voice Input & Whisper STT (Fallback API Key)</span>
+        </div>
+        <p className="text-[11px] text-slate-400 leading-relaxed">
+          If browser Web Speech cloud returns a network error, speech is transcribed via <strong>Whisper / Gemini</strong> audio APIs. If your primary LLM is NVIDIA NIM, paste a free Gemini (<code>AIzaSy...</code>) or Groq (<code>gsk_...</code>) key below for instant voice transcription.
+        </p>
+
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between text-[11px]">
+            <label className="text-slate-400">Voice Transcription Key (Gemini or Groq)</label>
+            <div className="flex gap-2.5">
+              <a
+                href="https://aistudio.google.com/app/apikey"
+                target="_blank"
+                rel="noreferrer"
+                className="text-brand-400 hover:text-brand-300 underline font-medium"
+              >
+                Get Free Gemini Key ↗
+              </a>
+              <a
+                href="https://console.groq.com/keys"
+                target="_blank"
+                rel="noreferrer"
+                className="text-brand-400 hover:text-brand-300 underline font-medium"
+              >
+                Get Free Groq Key ↗
+              </a>
+            </div>
+          </div>
+          <input
+            type="password"
+            value={voiceApiKey}
+            onChange={(e) => setVoiceApiKey(e.target.value)}
+            placeholder="AIzaSy... or gsk_..."
+            className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 font-mono focus:outline-none focus:border-brand-500"
+          />
         </div>
       </div>
 

@@ -60,3 +60,19 @@ export async function loadWorkerConfig(): Promise<WorkerConfig | null> {
   return (result.workerConfig as WorkerConfig | undefined) ?? null;
 }
 
+export interface VoiceConfig {
+  voiceApiKey?: string;
+  provider?: 'gemini' | 'groq' | 'openai' | 'desktop' | 'auto';
+}
+
+/** Save dedicated voice transcription configuration */
+export async function saveVoiceConfig(config: VoiceConfig): Promise<void> {
+  await chrome.storage.local.set({ voiceConfig: config });
+}
+
+/** Load dedicated voice transcription configuration */
+export async function loadVoiceConfig(): Promise<VoiceConfig | null> {
+  const result = await chrome.storage.local.get('voiceConfig');
+  return (result.voiceConfig as VoiceConfig | undefined) ?? null;
+}
+

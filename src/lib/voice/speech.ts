@@ -1,4 +1,9 @@
-import { loadProviderKeys, type ProviderKeys } from '../storage/secure';
+import {
+  loadProviderKeys,
+  loadWorkerConfig,
+  loadVoiceConfig,
+  type ProviderKeys,
+} from '../storage/secure';
 
 export interface SpeechRecognitionHandlers {
   onStart?: () => void;
@@ -84,21 +89,59 @@ function blobToBase64(blob: Blob): Promise<string> {
  * Transcribes recorded audio using the user's configured LLM / Speech API (Groq, OpenAI, Gemini).
  */
 export async function transcribeAudioBlob(blob: Blob): Promise<string> {
-  // 1. Try configured LLM provider key
+  // 1. Gather all potential API keys across VoiceConfig, Primary, Worker, and Preset stores
+  const keysToTry: { key: string; type: 'groq' | 'openai' | 'gemini' | 'unknown' }[] = [];
+
   try {
+    const voiceCfg = await loadVoiceConfig();
+    if (voiceCfg?.voiceApiKey) {
+      const k = voiceCfg.voiceApiKey.trim();
+      const t = k.startsWith('gsk_') ? 'groq' : k.startsWith('AIzaSy') ? 'gemini' : k.startsWith('sk-') ? 'openai' : 'unknown';
+      keysToTry.push({ key: k, type: t });
+    }
+
+    const workerCfg = await loadWorkerConfig();
+    if (workerCfg?.apiKey) {
+      const k = workerCfg.apiKey.trim();
+      const t = k.startsWith('gsk_') ? 'groq' : k.startsWith('AIzaSy') ? 'gemini' : k.startsWith('sk-') ? 'openai' : 'unknown';
+      keysToTry.push({ key: k, type: t });
+    }
+
     const local = (await chrome.storage?.local?.get(['activeProviderId'])) as { activeProviderId?: string } | undefined;
     const providerId = local?.activeProviderId || 'nim-cloud';
-    const keys = await loadProviderKeys(providerId);
+    const primaryKeys = await loadProviderKeys(providerId);
+    if (primaryKeys?.llmApiKey) {
+      const k = primaryKeys.llmApiKey.trim();
+      const t = providerId === 'gemini' || k.startsWith('AIzaSy') ? 'gemini' : providerId === 'groq' || k.startsWith('gsk_') ? 'groq' : providerId === 'openai' || k.startsWith('sk-') ? 'openai' : 'unknown';
+      keysToTry.push({ key: k, type: t });
+    }
 
-    if (keys?.llmApiKey) {
-      // Groq Whisper (Ultra-fast & free)
-      if (providerId === 'groq' || keys.llmApiKey.startsWith('gsk_')) {
+    // Also check explicit gemini or groq preset store
+    for (const p of ['gemini', 'groq', 'openai']) {
+      const pKeys = await loadProviderKeys(p);
+      if (pKeys?.llmApiKey) {
+        const k = pKeys.llmApiKey.trim();
+        const t = p as 'gemini' | 'groq' | 'openai';
+        if (!keysToTry.some((x) => x.key === k)) {
+          keysToTry.push({ key: k, type: t });
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Error loading keys for transcription:', err);
+  }
+
+  // 2. Try each configured API key with matching speech service
+  for (const { key, type } of keysToTry) {
+    try {
+      // Groq Whisper
+      if (type === 'groq' || key.startsWith('gsk_')) {
         const formData = new FormData();
         formData.append('file', blob, 'audio.webm');
         formData.append('model', 'whisper-large-v3-turbo');
         const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
           method: 'POST',
-          headers: { Authorization: `Bearer ${keys.llmApiKey}` },
+          headers: { Authorization: `Bearer ${key}` },
           body: formData,
         });
         if (res.ok) {
@@ -107,26 +150,10 @@ export async function transcribeAudioBlob(blob: Blob): Promise<string> {
         }
       }
 
-      // OpenAI Whisper
-      if (providerId === 'openai' || keys.llmApiKey.startsWith('sk-')) {
-        const formData = new FormData();
-        formData.append('file', blob, 'audio.webm');
-        formData.append('model', 'whisper-1');
-        const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${keys.llmApiKey}` },
-          body: formData,
-        });
-        if (res.ok) {
-          const json = await res.json();
-          if (json.text) return json.text.trim();
-        }
-      }
-
-      // Gemini 2.0 Audio Transcription
-      if (providerId === 'gemini' || keys.llmApiKey.startsWith('AIzaSy')) {
+      // Gemini 2.0 Flash Audio Transcription
+      if (type === 'gemini' || key.startsWith('AIzaSy')) {
         const base64Audio = await blobToBase64(blob);
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${keys.llmApiKey}`;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`;
         const res = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -134,7 +161,7 @@ export async function transcribeAudioBlob(blob: Blob): Promise<string> {
             contents: [{
               parts: [
                 { inline_data: { mime_type: blob.type || 'audio/webm', data: base64Audio } },
-                { text: 'Transcribe this user spoken instruction. Output ONLY the exact transcribed text, without quotes or conversational commentary.' }
+                { text: 'Transcribe this user spoken instruction. Output ONLY the exact transcribed words, nothing else.' }
               ]
             }]
           }),
@@ -145,12 +172,28 @@ export async function transcribeAudioBlob(blob: Blob): Promise<string> {
           if (text) return text.trim();
         }
       }
+
+      // OpenAI Whisper
+      if (type === 'openai' || key.startsWith('sk-')) {
+        const formData = new FormData();
+        formData.append('file', blob, 'audio.webm');
+        formData.append('model', 'whisper-1');
+        const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${key}` },
+          body: formData,
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.text) return json.text.trim();
+        }
+      }
+    } catch (apiErr) {
+      console.warn('Transcription API attempt failed:', apiErr);
     }
-  } catch (err) {
-    console.warn('API audio transcription attempt error:', err);
   }
 
-  // 2. Try desktop bridge local STT if available
+  // 3. Try Desktop NIM Bridge local STT if available
   try {
     const formData = new FormData();
     formData.append('file', blob, 'audio.webm');
@@ -167,7 +210,7 @@ export async function transcribeAudioBlob(blob: Blob): Promise<string> {
     // Desktop not responding
   }
 
-  throw new Error('Web Speech Cloud was unreachable. Configure an API key (Groq, Gemini, or OpenAI) in Settings for instant Whisper voice transcription.');
+  throw new Error('Please enter a free Gemini (AIzaSy...) or Groq (gsk_...) key in Settings > Voice for instant Whisper speech-to-text.');
 }
 
 export class WebSpeechRecognizer {
@@ -248,9 +291,8 @@ export class WebSpeechRecognizer {
 
           if (err === 'network') {
             // Google Cloud Web Speech returned network error.
-            // Don't kill the session! MediaRecorder is still capturing audio in the background!
-            console.info('WebSpeech cloud unreachable; using local audio recorder.');
-            this.handlers.onInterim?.('🎙️ Recording voice... Click mic to transcribe.');
+            // MediaRecorder continues capturing audio locally in background!
+            console.info('WebSpeech cloud unreachable; relying on audio recorder.');
             return;
           }
 
