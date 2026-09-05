@@ -204,23 +204,6 @@ export async function transcribeAudioBlob(blob: Blob): Promise<string> {
     }
   }
 
-  // 3. Try Desktop NIM Bridge local STT if available
-  try {
-    const formData = new FormData();
-    formData.append('file', blob, 'audio.webm');
-    const res = await fetch('http://127.0.0.1:7432/api/stt', {
-      method: 'POST',
-      body: formData,
-      signal: AbortSignal.timeout(3000),
-    });
-    if (res.ok) {
-      const json = await res.json();
-      if (json.text) return json.text.trim();
-    }
-  } catch {
-    // Desktop not responding
-  }
-
   throw new Error('Please enter a free Gemini (AIzaSy...) or Groq (gsk_...) key in Settings > Voice for instant Whisper speech-to-text.');
 }
 

@@ -1,5 +1,7 @@
 import asyncio
 import sys
+import threading
+from typing import Any, Optional
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -61,11 +63,29 @@ async def run_cli():
         border_style="cyan"
     ))
 
+    # ── HITL Confirmation Gate ────────────────────────────────────────────────
+    # Holds the pending confirmation state so the main input loop can route
+    # a typed 'y' or 'n' directly to the waiting tool-approval callback instead
+    # of spawning a new agent task.
+    _hitl_pending: dict = {}   # keys: "event" (threading.Event), "answer" (str)
+
     async def cli_hitl_callback(tool_name: str, tool_args: dict) -> bool:
         console.print(f"\n[danger]⚠️ ACTION REQUIRES CONFIRMATION:[/danger] Tool '[bold]{tool_name}[/bold]'")
         console.print(f"Arguments: {tool_args}")
-        ans = await asyncio.to_thread(Prompt.ask, "Approve execution?", choices=["y", "n"], default="n")
-        return ans.lower() == "y"
+        console.print("[bold yellow]Approve execution? \\[y/n] (default: n):[/bold yellow] ", end="")
+
+        # Register a blocking gate on the main input loop
+        gate = threading.Event()
+        _hitl_pending["event"] = gate
+        _hitl_pending["answer"] = "n"   # default: deny
+
+        # Wait (non-blocking for asyncio) until the main loop resolves the gate
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, gate.wait, 30.0)   # 30s timeout → auto-deny
+
+        answer = _hitl_pending.pop("answer", "n")
+        _hitl_pending.pop("event", None)
+        return answer.lower() == "y"
 
     main_loop = asyncio.get_running_loop()
     active_hud: Optional[Any] = None
@@ -215,6 +235,21 @@ async def run_cli():
             user_input = (await asyncio.to_thread(Prompt.ask, "\n[bold green]NIM JARVIS[/bold green] >")).strip()
             if not user_input:
                 continue
+
+            # ── HITL Confirmation Intercept ───────────────────────────────────
+            # If a destructive tool is waiting for y/n approval, route this input
+            # directly to the confirmation gate instead of spawning a new task.
+            if "event" in _hitl_pending:
+                gate: threading.Event = _hitl_pending["event"]
+                if not gate.is_set():
+                    ans = user_input.lower().strip()
+                    _hitl_pending["answer"] = "y" if ans in ("y", "yes") else "n"
+                    gate.set()
+                    if ans in ("y", "yes"):
+                        console.print("[success]✅ Action approved.[/success]")
+                    else:
+                        console.print("[warning]❌ Action denied — tool execution cancelled.[/warning]")
+                    continue
 
             # Command Handling
             if user_input in ["/exit", "exit", "quit", ":q"]:

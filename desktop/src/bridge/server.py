@@ -154,19 +154,35 @@ class BridgeServer:
                             audio_bytes = base64.b64decode(audio_b64)
                             from src.voice.stt import get_stt_engine
                             engine = get_stt_engine()
+                            import subprocess
+                            import tempfile
+                            import os
+                            # Write WebM to temp file and convert to 16-bit mono WAV via ffmpeg
+                            with tempfile.NamedTemporaryFile(suffix='.webm', delete=False) as wf:
+                                wf.write(audio_bytes)
+                                webm_path = wf.name
+                            wav_path = webm_path.replace('.webm', '.wav')
                             try:
-                                import soundfile as sf
-                                import io
-                                audio_io = io.BytesIO(audio_bytes)
-                                data, samplerate = sf.read(audio_io, dtype='int16')
-                                if len(data.shape) > 1:
-                                    data = data.mean(axis=1).astype('int16')
-                                pcm_bytes = data.tobytes()
-                                res = engine.transcribe_pcm(pcm_bytes, sample_rate=samplerate)
+                                subprocess.run(
+                                    [
+                                        'ffmpeg', '-y', '-i', webm_path,
+                                        '-ar', '16000', '-ac', '1',
+                                        '-sample_fmt', 's16', '-f', 'wav', wav_path
+                                    ],
+                                    capture_output=True, timeout=15, check=True
+                                )
+                                with open(wav_path, 'rb') as rf:
+                                    wav_bytes = rf.read()
+                                # Strip 44-byte WAV header to get raw signed-16 PCM
+                                pcm_bytes = wav_bytes[44:]
+                                res = engine.transcribe_pcm(pcm_bytes, sample_rate=16000)
                                 transcript_text = res.text if res else ""
-                            except Exception:
-                                res = engine.transcribe_pcm(audio_bytes, sample_rate=16000)
-                                transcript_text = res.text if res else ""
+                            finally:
+                                for p in [webm_path, wav_path]:
+                                    try:
+                                        os.unlink(p)
+                                    except OSError:
+                                        pass
                         except Exception as stt_err:
                             logger.error("Bridge STT error: %s", stt_err)
                             transcript_text = ""

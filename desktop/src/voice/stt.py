@@ -66,7 +66,9 @@ INDIAN_ACCENT_INITIAL_PROMPT = (
     "Jarvis, please open WhatsApp, Excel sheet, Chrome browser, VS Code, "
     "Notepad, terminal, file manager, YouTube, calculate, summarize document, "
     "check screen coordinates, run subagent, organize downloads, write email, "
-    "PowerPoint presentation, Outlook mail, Task Manager."
+    "PowerPoint presentation, Outlook mail, Task Manager, close window, kill process, "
+    "open application, take screenshot, search web, copy file, move file, delete file, "
+    "Instagram, Facebook, Twitter, LinkedIn, Telegram, Discord, Zoom, Teams."
 )
 
 PHONETIC_REPLACEMENTS = [
@@ -80,6 +82,22 @@ PHONETIC_REPLACEMENTS = [
     (r"\bexcel\s*sheet\b", "Excel sheet"),
     (r"\bchrome\s*browser\b", "Chrome browser"),
     (r"\btask\s*manager\b", "Task Manager"),
+    (r"\bopen\s*briefcase\b", "open brief"),
+    (r"\banti\s*gravity\b", "Antigravity"),
+    (r"\banti\s*grav\b", "Antigravity"),
+    (r"\bvisual\s*studio\s*code\b", "VS Code"),
+    (r"\bvs\s*code\b", "VS Code"),
+    (r"\bjupyter\s*notebook\b", "Jupyter Notebook"),
+    (r"\bfile\s*manager\b", "file manager"),
+    (r"\bscreen\s*shot\b", "screenshot"),
+    (r"\bkill\s*process\b", "kill process"),
+    (r"\bopen\s*app\b", "open application"),
+    (r"\bclose\s*app\b", "close application"),
+    (r"\bclose\s*chrome\b", "close Chrome"),
+    (r"\bopen\s*chrome\b", "open Chrome"),
+    (r"\byou\s*tube\b", "YouTube"),
+    (r"\binstagram\b", "Instagram"),
+    (r"\bface\s*book\b", "Facebook"),
 ]
 
 
@@ -277,7 +295,7 @@ class WhisperSTTEngine:
         sample_rate: int = 16000,
     ) -> Optional[TranscriptResult]:
         """Transcribes raw 16-bit mono PCM → TranscriptResult with accent normalization & deduplication."""
-        min_bytes = int(sample_rate * 0.25) * 2  # ignore < 250ms
+        min_bytes = int(sample_rate * 0.5) * 2  # ignore < 500ms of audio (was 250ms)
         if not pcm_bytes or len(pcm_bytes) < min_bytes:
             return None
 
@@ -288,23 +306,33 @@ class WhisperSTTEngine:
         if self._ensure_model_loaded() and self._model and _HAS_NUMPY:
             try:
                 audio = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+
+                # Guard: skip very short clips that produce hallucinations (< 0.8 seconds)
+                if len(audio) < sample_rate * 0.8:
+                    return None
+
                 segments, info = self._model.transcribe(
                     audio,
                     language=self.language if self.language != "auto" else None,
-                    beam_size=2,
-                    best_of=2,
-                    temperature=0.0,
+                    beam_size=5,          # Higher beam → better accuracy on fast/accented speech
+                    best_of=5,
+                    temperature=(0.0, 0.2, 0.4),   # Auto-fallback schedule for difficult audio
                     initial_prompt=self.initial_prompt,
                     vad_filter=True,
-                    vad_parameters={"min_silence_duration_ms": 250},
+                    vad_parameters={
+                        "min_silence_duration_ms": 300,   # Slightly longer silence gap detection
+                        "speech_pad_ms": 200,             # Pad edges so fast words aren't clipped
+                        "threshold": 0.40,                # Lower VAD threshold = catch quieter speech
+                    },
                     condition_on_previous_text=False,
                     word_timestamps=False,
-                    repetition_penalty=1.2,
-                    no_repeat_ngram_size=3,
-                    compression_ratio_threshold=2.4,
-                    log_prob_threshold=-1.0,
-                    no_speech_threshold=0.6,
+                    repetition_penalty=1.35,      # Stronger loop prevention
+                    no_repeat_ngram_size=4,        # Block 4-gram repeats (was 3)
+                    compression_ratio_threshold=2.2,   # Reject more hallucinated looping text
+                    log_prob_threshold=-0.8,       # Reject low-confidence segments
+                    no_speech_threshold=0.50,      # Slightly permissive: catch quiet commands
                 )
+
                 collected: List[str] = []
                 for seg in segments:
                     text = seg.text.strip()

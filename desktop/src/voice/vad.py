@@ -48,16 +48,16 @@ class VADEngine:
 
     SAMPLE_RATE = 16000     # 16kHz
     FRAME_SIZE = 512        # 512 samples = 32ms (optimal for Silero-VAD)
-    MIN_ONSET_FRAMES = 2    # Require at least 2 consecutive speech frames (~64ms)
-    PRE_SPEECH_FRAMES = 5   # Keep 5 frames (~160ms) prior to onset
-    TAIL_SILENCE_FRAMES = 4 # Keep 4 frames (~128ms) after silence detected
+    MIN_ONSET_FRAMES = 3    # Require 3 consecutive speech frames (~96ms) — rejects keyboard clicks
+    PRE_SPEECH_FRAMES = 6   # Keep 6 frames (~192ms) prior to onset — catch leading consonants
+    TAIL_SILENCE_FRAMES = 8 # Keep 8 frames (~256ms) after silence detected
 
     def __init__(
         self,
         vad_mode: int = 2,
         energy_threshold: float = 0.03,
-        speech_prob_threshold: float = 0.5,
-        silence_timeout_sec: float = 0.7,
+        speech_prob_threshold: float = 0.45,   # Slightly lower threshold: catch quieter/faster speech
+        silence_timeout_sec: float = 1.0,       # 1.0s: allow pauses within a sentence (was 0.7s)
         on_speech_start: Optional[Callable[[], None]] = None,
         on_speech_end: Optional[Callable[[bytes], None]] = None,
         on_level: Optional[Callable[[float], None]] = None,
@@ -108,7 +108,7 @@ class VADEngine:
         """Calibrates baseline ambient noise floor from initial audio samples."""
         if samples:
             avg_energy = float(np.mean(samples))
-            self.energy_threshold = max(0.02, avg_energy * 3.0)
+            self.energy_threshold = max(0.025, avg_energy * 4.0)  # 4x noise floor (was 3x)
             self._calibrated = True
             logger.debug(
                 "VAD auto-calibrated: baseline energy=%.4f, threshold=%.4f",
