@@ -106,6 +106,8 @@ from src.tools.subagent_tools import register_subagent_tools
 from .prompts import SYSTEM_PROMPT, INTENT_CLASSIFICATION_PROMPT
 from .state import TaskState, AgentStep, TaskStatus
 from .memory import get_memory_store
+from .session_memory import get_session_memory, SessionMemoryManager
+from src.tools.memory_tools import get_memory_tools
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +132,7 @@ class AgentOrchestrator:
             primary_model=self.config.model
         )
         self.memory_store = get_memory_store()
+        self.session_memory = get_session_memory()
         self._cancel_event = asyncio.Event()
         self.is_busy: bool = False
         self._register_default_tools()
@@ -209,7 +212,7 @@ class AgentOrchestrator:
             SetVoicePersonaTool(),
             BrowserResearchTool(),
         ]
-        for t in tools:
+        for t in tools + get_memory_tools():
             self.tool_registry.register(t)
         register_screen_coord_tools(self.tool_registry)
         register_subagent_tools(self.tool_registry)
@@ -259,9 +262,16 @@ class AgentOrchestrator:
         try:
             yield {"event": "task_started", "task_id": t_id, "goal": goal}
 
+            # 0. Autonomous Context Resolution: Detect if prompt relies on prior session context
+            context_hint = self.session_memory.detect_context_need(goal)
+            if context_hint:
+                yield {"event": "context_resolved", "context": context_hint}
+
             # 1. Match Specialist Agent Profile
             specialist = SpecialistRouter.match_specialist(goal)
             system_content = f"{SYSTEM_PROMPT}\n\n[Active Specialist Profile: {specialist.name}]\n{specialist.system_prompt_addon}"
+            if context_hint:
+                system_content = f"{system_content}\n\n{context_hint}"
 
             # 2. Intent check
             intent = await self.classify_intent(goal)
@@ -356,6 +366,15 @@ class AgentOrchestrator:
                         "tokens": state.prompt_tokens + state.completion_tokens,
                         "cost_usd": state.estimated_usd_cost
                     }
+                    # Extract touched files from steps
+                    touched_files: List[str] = []
+                    for s in state.steps:
+                        if s.tool_args and isinstance(s.tool_args, dict):
+                            for k in ("path", "file_path", "destination", "source", "output_path", "filename"):
+                                v = s.tool_args.get(k)
+                                if v and isinstance(v, str) and v not in touched_files:
+                                    touched_files.append(v)
+
                     self.memory_store.record_task(
                         task_id=t_id,
                         goal=goal,
@@ -363,6 +382,13 @@ class AgentOrchestrator:
                         status="completed",
                         steps_count=len(state.steps),
                         tokens=state.prompt_tokens + state.completion_tokens
+                    )
+                    self.session_memory.record_turn(
+                        turn_id=t_id,
+                        goal=goal,
+                        final_answer=accumulated_content,
+                        tools_used=[s.tool_name for s in state.steps],
+                        files_touched=touched_files
                     )
                     return
 

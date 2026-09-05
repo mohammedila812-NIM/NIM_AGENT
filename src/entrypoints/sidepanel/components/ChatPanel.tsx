@@ -4,9 +4,10 @@ import {
   Globe, Search, FileText, MousePointer, Keyboard,
   ArrowUpDown, Camera, Loader2, ChevronDown, ChevronRight,
   Zap, Layers, Table, ExternalLink, Sparkles, List, Clock, History, CheckSquare,
-  Download, Code2, Bookmark, Bell,
+  Download, Code2, Bookmark, Bell, Mic, MicOff,
 } from 'lucide-react';
 import { MarkdownMessage } from './MarkdownMessage';
+import { getWebSpeechRecognizer } from '../../../lib/voice/speech';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -206,17 +207,56 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 }) => {
   const [input, setInput] = useState('');
   const [visionOptIn, setVisionOptIn] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const speechRecognizer = useRef(getWebSpeechRecognizer());
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, agentSteps, taskStatus]);
 
+  const toggleVoiceInput = () => {
+    const recognizer = speechRecognizer.current;
+    if (isListening) {
+      recognizer.stop();
+      setIsListening(false);
+      setVoiceNotice(null);
+    } else {
+      setVoiceNotice('🎙️ Listening... Speak your prompt naturally.');
+      const ok = recognizer.start({
+        onStart: () => setIsListening(true),
+        onInterim: (text: string) => setInput(text),
+        onResult: (text: string) => {
+          setInput(text);
+          setVoiceNotice(null);
+          setIsListening(false);
+        },
+        onError: (err: string) => {
+          setVoiceNotice(`⚠️ Voice input: ${err}`);
+          setIsListening(false);
+        },
+        onEnd: () => {
+          setIsListening(false);
+          setVoiceNotice(null);
+        },
+      });
+      if (!ok) {
+        setVoiceNotice('⚠️ Web Speech is not available.');
+      }
+    }
+  };
+
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || activeTaskId) return;
+    if (isListening) {
+      speechRecognizer.current.stop();
+      setIsListening(false);
+    }
     const userMsg = input.trim();
     setInput('');
+    setVoiceNotice(null);
     onStartTask(userMsg, visionOptIn);
   };
 
@@ -330,6 +370,13 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
           <span className="text-[10px] text-slate-500">DOM-first policy active</span>
         </div>
 
+        {voiceNotice && (
+          <div className="text-xs px-2 py-1 rounded bg-brand-950/80 border border-brand-700/60 text-brand-300 flex items-center gap-1.5 animate-pulse">
+            <Mic className="w-3.5 h-3.5 text-brand-400" />
+            <span>{voiceNotice}</span>
+          </div>
+        )}
+
         <div className="flex gap-2">
           <textarea
             value={input}
@@ -340,11 +387,35 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                 handleSend(e);
               }
             }}
-            placeholder={isRunning ? 'Agent is working...' : 'Describe research or browser task (Enter to send)...'}
+            placeholder={
+              isListening
+                ? 'Listening... Speak your prompt.'
+                : isRunning
+                ? 'Agent is working...'
+                : 'Describe research or browser task (or click mic / speak)...'
+            }
             disabled={isRunning}
             rows={2}
-            className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-brand-500 resize-none disabled:opacity-50"
+            className={`flex-1 bg-slate-950 border rounded-xl px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none resize-none disabled:opacity-50 transition ${
+              isListening ? 'border-brand-500 ring-1 ring-brand-500/50' : 'border-slate-700 focus:border-brand-500'
+            }`}
           />
+
+          {/* Voice Command Input Button */}
+          {!isRunning && (
+            <button
+              type="button"
+              onClick={toggleVoiceInput}
+              className={`px-3.5 rounded-xl flex items-center justify-center transition shadow-md ${
+                isListening
+                  ? 'bg-rose-600 hover:bg-rose-500 text-white animate-pulse shadow-rose-900/40'
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'
+              }`}
+              title={isListening ? 'Stop Voice Listening' : 'Speak Voice Command'}
+            >
+              {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+            </button>
+          )}
 
           {isRunning ? (
             <button

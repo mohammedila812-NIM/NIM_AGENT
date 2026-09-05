@@ -124,9 +124,8 @@ async def test_trigger_coordinator():
 
     # Simulate trigger
     coord._handle_clipboard_event(classify_clipboard_content("https://anthropic.com"))
-    assert len(triggered) == 1
-    assert triggered[0]["source"] == "clipboard"
-    assert "anthropic.com" in triggered[0]["title"]
+    assert any(t["source"] == "clipboard" and "anthropic.com" in t["title"] for t in triggered)
+    assert any(t["source"] == "startup" for t in triggered)
 
     await coord.stop_all()
     assert coord._is_active is False
