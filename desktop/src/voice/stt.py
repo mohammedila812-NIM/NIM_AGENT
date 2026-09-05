@@ -355,7 +355,17 @@ class WhisperSTTEngine:
         import time
         t0 = time.perf_counter()
 
-        # ── 1. Local Whisper with Accent Prompt Priming & Repetition Guards ──
+        # ── 1. Primary: Cloud Gemini 2.0 Flash Multimodal Audio STT ───────────
+        # Near 100% human-grade comprehension, zero laptop CPU load, handles any accent/noise effortlessly
+        gemini_res = _gemini_multimodal_transcribe(pcm_bytes, sample_rate)
+        if gemini_res:
+            gemini_res.text = clean_hallucinated_repetitions(gemini_res.text)
+            if gemini_res.text:
+                latency_ms = (time.perf_counter() - t0) * 1000
+                logger.info("🗣️ Gemini 2.0 Flash Audio [%.0fms]: '%s'", latency_ms, gemini_res.text)
+                return gemini_res
+
+        # ── 2. Fallback: Local Whisper with Accent Prompt Priming ─────────────
         if self._ensure_model_loaded() and self._model and _HAS_NUMPY:
             try:
                 audio = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32768.0
@@ -406,7 +416,7 @@ class WhisperSTTEngine:
                     / self._transcription_count
                 )
                 if full_text:
-                    logger.info("🗣️ Whisper [%s] %.0fms: '%s'", self.model_name, latency_ms, full_text)
+                    logger.info("🗣️ Whisper [%s] (fallback) %.0fms: '%s'", self.model_name, latency_ms, full_text)
                     return TranscriptResult(
                         text=full_text,
                         confidence=0.96,
@@ -415,14 +425,7 @@ class WhisperSTTEngine:
                         segments=collected,
                     )
             except Exception as e:
-                logger.warning("Whisper transcription error: %s", e)
-
-        # ── 2. Cloud Gemini Multimodal Audio Fallback ────────────────────
-        gemini_res = _gemini_multimodal_transcribe(pcm_bytes, sample_rate)
-        if gemini_res:
-            gemini_res.text = clean_hallucinated_repetitions(gemini_res.text)
-            if gemini_res.text:
-                return gemini_res
+                logger.warning("Whisper fallback transcription error: %s", e)
 
         # ── 3. Vosk Offline Fallback ────────────────────────────────────
         if _HAS_VOSK:
@@ -478,11 +481,12 @@ def _get_gemini_api_key() -> Optional[str]:
     key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if not key:
         try:
-            from src.security.secret_store import SecretStore
-            key = SecretStore().get_key("gemini")
+            from src.security.secrets import get_secret_store
+            key = get_secret_store().get_key("gemini")
         except Exception:
             pass
     return key
+
 
 
 def _gemini_multimodal_transcribe(pcm_bytes: bytes, sample_rate: int = 16000) -> Optional[TranscriptResult]:

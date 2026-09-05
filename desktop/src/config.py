@@ -33,10 +33,11 @@ DEFAULT_KILL_SWITCH_KEY = "ctrl+alt+esc"
 class AgentConfig:
     provider_id: str = "gemini"
     base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai"
-    model: str = "models/gemini-flash-lite-latest"
+    model: str = "models/gemini-2.0-flash"
     api_key: Optional[str] = None
     temperature: float = 0.2
     max_tokens: int = 4096
+
     max_iterations: int = DEFAULT_MAX_ITERATIONS
     bridge_port: int = DEFAULT_BRIDGE_PORT
     enable_hitl: bool = True
