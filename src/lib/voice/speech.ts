@@ -4,6 +4,7 @@ import {
   loadVoiceConfig,
   type ProviderKeys,
 } from '../storage/secure';
+import { desktopBridge } from '../bridge/desktop-bridge';
 
 export interface SpeechRecognitionHandlers {
   onStart?: () => void;
@@ -89,7 +90,17 @@ function blobToBase64(blob: Blob): Promise<string> {
  * Transcribes recorded audio using the user's configured LLM / Speech API (Groq, OpenAI, Gemini).
  */
 export async function transcribeAudioBlob(blob: Blob): Promise<string> {
-  // 1. Gather all potential API keys across VoiceConfig, Primary, Worker, and Preset stores
+  // 1. Primary: If local Desktop JARVIS agent is running, transcribe 100% locally with faster-whisper!
+  try {
+    if (desktopBridge.getState() === 'connected') {
+      const text = await desktopBridge.transcribeAudio(blob);
+      if (text) return text;
+    }
+  } catch (bridgeErr) {
+    console.warn('Local Desktop Bridge transcription error, trying cloud fallback:', bridgeErr);
+  }
+
+  // 2. Gather all potential API keys across VoiceConfig, Primary, Worker, and Preset stores
   const keysToTry: { key: string; type: 'groq' | 'openai' | 'gemini' | 'unknown' }[] = [];
 
   try {

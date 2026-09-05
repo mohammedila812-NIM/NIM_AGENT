@@ -22,6 +22,7 @@ let bridgeState: BridgeState = 'disconnected';
 let bridgeReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let bridgeUrl = 'ws://127.0.0.1:7432';
 let bridgeToken = '';
+const pendingVoiceRequests = new Map<string, (result: { success: boolean; text?: string; error?: string }) => void>();
 
 function broadcastBridgeState(state: BridgeState) {
   bridgeState = state;
@@ -72,6 +73,19 @@ function startBridge(url: string, authToken: string) {
           const goal = (payload.goal as string) || '';
           console.log(`[Bridge] Received browser task: "${goal}" (${taskId})`);
           void handleAgentStart(taskId, goal, undefined, false);
+          return;
+        }
+        if (msgType === 'voice_transcribe_result') {
+          const payload = (msg.payload || {}) as Record<string, unknown>;
+          const reqId = payload.req_id as string;
+          const text = (payload.text as string) || '';
+          const success = Boolean(payload.success);
+          if (reqId && pendingVoiceRequests.has(reqId)) {
+            const cb = pendingVoiceRequests.get(reqId)!;
+            pendingVoiceRequests.delete(reqId);
+            cb({ success, text });
+          }
+          return;
         }
       } catch (e) {
         console.error('[Bridge] Message parse error:', e);
@@ -81,7 +95,6 @@ function startBridge(url: string, authToken: string) {
     bridgeWs.onclose = () => {
       console.log('[Bridge] Disconnected from Desktop.');
       broadcastBridgeState('disconnected');
-      // Auto-reconnect in 5s if we had an auth token configured
       if (bridgeToken) {
         bridgeReconnectTimer = setTimeout(() => startBridge(bridgeUrl, bridgeToken), 5000);
       }
@@ -99,17 +112,15 @@ function startBridge(url: string, authToken: string) {
 
 function stopBridge() {
   if (bridgeReconnectTimer) { clearTimeout(bridgeReconnectTimer); bridgeReconnectTimer = null; }
-  bridgeToken = ''; // clear so auto-reconnect stops
+  bridgeToken = '';
   if (bridgeWs) {
     bridgeWs.close();
     bridgeWs = null;
   }
   broadcastBridgeState('disconnected');
 }
-// ──────────────────────────────────────────────────────────────────────────────
 
 function broadcast(msg: Record<string, unknown>): void {
-  // Send to all connected sidepanel ports
   for (const port of connectedPorts) {
     try {
       port.postMessage(msg);
@@ -117,13 +128,11 @@ function broadcast(msg: Record<string, unknown>): void {
       connectedPorts.delete(port);
     }
   }
-  // Fallback broadcast via runtime message
   chrome.runtime.sendMessage(msg).catch(() => {});
 }
 
 export default defineBackground(() => {
   initPortManager();
-
   // Handle stream port from sidepanel
   onPort('sidepanel-stream', (port) => {
     connectedPorts.add(port);
@@ -207,6 +216,24 @@ export default defineBackground(() => {
 
     if (message?.type === 'BRIDGE_GET_STATE') {
       sendResponse({ state: bridgeState });
+      return true;
+    }
+
+    if (message?.type === 'BRIDGE_TRANSCRIBE_AUDIO') {
+      const audioB64 = (message.payload || {}).audio_base64 as string;
+      if (!bridgeWs || bridgeWs.readyState !== WebSocket.OPEN) {
+        sendResponse({ success: false, error: 'Local NIM Desktop Bridge is not connected.' });
+        return true;
+      }
+      const reqId = `stt_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      pendingVoiceRequests.set(reqId, (res) => {
+        sendResponse(res);
+      });
+      bridgeWs.send(JSON.stringify({
+        type: 'voice_transcribe',
+        payload: { audio_base64: audioB64, req_id: reqId },
+        auth_token: bridgeToken,
+      }));
       return true;
     }
 

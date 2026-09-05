@@ -144,6 +144,39 @@ class BridgeServer:
                         pong = BridgeMessage(type=BridgeMessageType.PONG, payload={"ack": time.time()})
                         await websocket.send(json.dumps(pong.to_dict()))
 
+                    # 5. Handle Voice Transcription Request (Local Faster-Whisper)
+                    elif msg_type == "voice_transcribe":
+                        audio_b64 = payload.get("audio_base64", "")
+                        req_id = payload.get("req_id", "")
+                        transcript_text = ""
+                        try:
+                            import base64
+                            audio_bytes = base64.b64decode(audio_b64)
+                            from src.voice.stt import get_stt_engine
+                            engine = get_stt_engine()
+                            try:
+                                import soundfile as sf
+                                import io
+                                audio_io = io.BytesIO(audio_bytes)
+                                data, samplerate = sf.read(audio_io, dtype='int16')
+                                if len(data.shape) > 1:
+                                    data = data.mean(axis=1).astype('int16')
+                                pcm_bytes = data.tobytes()
+                                res = engine.transcribe_pcm(pcm_bytes, sample_rate=samplerate)
+                                transcript_text = res.text if res else ""
+                            except Exception:
+                                res = engine.transcribe_pcm(audio_bytes, sample_rate=16000)
+                                transcript_text = res.text if res else ""
+                        except Exception as stt_err:
+                            logger.error("Bridge STT error: %s", stt_err)
+                            transcript_text = ""
+
+                        resp = BridgeMessage(
+                            type="voice_transcribe_result",
+                            payload={"req_id": req_id, "text": transcript_text, "success": bool(transcript_text)}
+                        )
+                        await websocket.send(json.dumps(resp.to_dict()))
+
                 except Exception as e:
                     logger.error("Error processing bridge message: %s", e)
 

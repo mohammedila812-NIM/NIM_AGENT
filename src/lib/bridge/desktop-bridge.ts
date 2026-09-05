@@ -90,6 +90,30 @@ class DesktopBridgeClient {
     chrome.runtime.sendMessage({ type: 'BRIDGE_DISCONNECT' }).catch(() => {});
     this.setState('disconnected');
   }
+
+  public async transcribeAudio(audioBlob: Blob): Promise<string> {
+    const reader = new FileReader();
+    const base64Promise = new Promise<string>((resolve, reject) => {
+      reader.onloadend = () => {
+        const result = reader.result as string;
+        const base64 = result.split(',')[1] || result;
+        resolve(base64);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(audioBlob);
+    });
+
+    const base64Audio = await base64Promise;
+    const resp = await chrome.runtime.sendMessage({
+      type: 'BRIDGE_TRANSCRIBE_AUDIO',
+      payload: { audio_base64: base64Audio },
+    });
+
+    if (resp?.success && resp?.text) {
+      return resp.text.trim();
+    }
+    throw new Error(resp?.error || 'Local Desktop STT failed.');
+  }
 }
 
 export const desktopBridge = new DesktopBridgeClient();
