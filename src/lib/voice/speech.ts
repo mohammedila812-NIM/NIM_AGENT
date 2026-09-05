@@ -2,7 +2,8 @@
  * speech.ts
  * ---------
  * Native Web Speech API Voice Recognition Controller for NIM Web Extension.
- * Provides real-time speech-to-text, interim preview streaming, and voice command dispatch.
+ * Provides real-time speech-to-text, interim preview streaming, permission management,
+ * and seamless fallback for Chrome extension sidepanels.
  */
 
 export interface SpeechRecognitionHandlers {
@@ -21,75 +22,170 @@ declare global {
   }
 }
 
+/**
+ * Checks whether microphone access is granted to the extension origin.
+ */
+export async function checkMicrophonePermission(): Promise<'granted' | 'denied' | 'prompt' | 'unknown'> {
+  try {
+    if (navigator.permissions && navigator.permissions.query) {
+      const result = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+      return result.state;
+    }
+  } catch {
+    // Fallback if query not supported for microphone
+  }
+  return 'unknown';
+}
+
+/**
+ * Requests microphone permission from the browser.
+ * Note: Must be called from a user gesture or tab where permission dialog can display.
+ */
+export async function requestMicrophonePermission(): Promise<boolean> {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    // Stop test tracks immediately to free hardware
+    stream.getTracks().forEach((track) => track.stop());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Opens the options page in a normal browser tab to display Chrome's native microphone permission prompt.
+ */
+export function openMicrophonePermissionPage(): void {
+  try {
+    if (typeof chrome !== 'undefined' && chrome.runtime) {
+      const optionsUrl = chrome.runtime.getURL('options.html#mic-permission');
+      if (chrome.tabs && chrome.tabs.create) {
+        chrome.tabs.create({ url: optionsUrl });
+      } else if (chrome.runtime.openOptionsPage) {
+        chrome.runtime.openOptionsPage();
+      } else {
+        window.open(optionsUrl, '_blank');
+      }
+    } else {
+      window.open('options.html#mic-permission', '_blank');
+    }
+  } catch (err) {
+    console.warn('Failed to open microphone permission page:', err);
+  }
+}
+
 export class WebSpeechRecognizer {
   private recognition: any = null;
   private isListening: boolean = false;
+  private shouldBeListening: boolean = false;
   private handlers: SpeechRecognitionHandlers = {};
   private finalTranscript: string = '';
+  private currentInterim: string = '';
 
   constructor() {
+    this.initRecognition();
+  }
+
+  private initRecognition() {
     const SpeechClass = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechClass) {
-      this.recognition = new SpeechClass();
-      this.recognition.continuous = false;
-      this.recognition.interimResults = true;
-      this.recognition.lang = 'en-US';
+      try {
+        this.recognition = new SpeechClass();
+        this.recognition.continuous = true;
+        this.recognition.interimResults = true;
+        this.recognition.maxAlternatives = 1;
+        this.recognition.lang = 'en-US';
 
-      this.recognition.onstart = () => {
-        this.isListening = true;
-        this.finalTranscript = '';
-        this.handlers.onStart?.();
-      };
+        this.recognition.onstart = () => {
+          this.isListening = true;
+          this.handlers.onStart?.();
+        };
 
-      this.recognition.onresult = (event: any) => {
-        let interim = '';
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const item = event.results[i];
-          const text = item[0]?.transcript || '';
-          if (item.isFinal) {
-            this.finalTranscript += text + ' ';
-          } else {
-            interim += text;
+        this.recognition.onresult = (event: any) => {
+          let interim = '';
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            const item = event.results[i];
+            const text = item[0]?.transcript || '';
+            if (item.isFinal) {
+              this.finalTranscript += text + ' ';
+            } else {
+              interim += text;
+            }
           }
-        }
 
-        if (interim) {
-          this.handlers.onInterim?.((this.finalTranscript + interim).trim());
-        } else if (this.finalTranscript) {
-          this.handlers.onInterim?.(this.finalTranscript.trim());
-        }
-      };
+          this.currentInterim = interim;
+          const fullPreview = (this.finalTranscript + interim).trim();
+          if (fullPreview) {
+            this.handlers.onInterim?.(fullPreview);
+          }
+        };
 
-      this.recognition.onerror = (event: any) => {
-        const err = event.error || 'speech_recognition_error';
-        if (err !== 'no-speech') {
+        this.recognition.onerror = (event: any) => {
+          const err = event.error || 'speech_recognition_error';
+          
+          if (err === 'no-speech') {
+            // Harmless silence timeout, keep listening
+            return;
+          }
+
+          if (err === 'not-allowed' || err === 'service-not-allowed') {
+            this.shouldBeListening = false;
+            this.isListening = false;
+            this.handlers.onError?.('permission-denied');
+            return;
+          }
+
+          if (err === 'audio-capture') {
+            this.shouldBeListening = false;
+            this.isListening = false;
+            this.handlers.onError?.('no-mic-found');
+            return;
+          }
+
+          // Other transient errors
           this.handlers.onError?.(err);
-        }
-      };
+        };
 
-      this.recognition.onend = () => {
-        this.isListening = false;
-        const result = this.finalTranscript.trim();
-        if (result) {
-          this.handlers.onResult?.(result);
-        }
-        this.handlers.onEnd?.();
-      };
+        this.recognition.onend = () => {
+          this.isListening = false;
+          if (this.shouldBeListening) {
+            // Restart automatically if user hasn't explicitly stopped
+            try {
+              this.recognition.start();
+              return;
+            } catch {
+              // Ignore restart error and finalize
+            }
+          }
+
+          const result = (this.finalTranscript + this.currentInterim).trim();
+          if (result) {
+            this.handlers.onResult?.(result);
+          }
+          this.handlers.onEnd?.();
+        };
+      } catch (e) {
+        console.warn('SpeechRecognition initialization error:', e);
+        this.recognition = null;
+      }
     }
   }
 
   public get isSupported(): boolean {
-    return Boolean(this.recognition);
+    return Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
   }
 
   public get active(): boolean {
     return this.isListening;
   }
 
-  public start(handlers: SpeechRecognitionHandlers): boolean {
+  public async start(handlers: SpeechRecognitionHandlers): Promise<boolean> {
     if (!this.recognition) {
-      handlers.onError?.('Web Speech API is not supported in this browser.');
-      return false;
+      this.initRecognition();
+      if (!this.recognition) {
+        handlers.onError?.('Web Speech API is not supported in this browser.');
+        return false;
+      }
     }
 
     if (this.isListening) {
@@ -97,32 +193,44 @@ export class WebSpeechRecognizer {
     }
 
     this.handlers = handlers;
+    this.finalTranscript = '';
+    this.currentInterim = '';
+    this.shouldBeListening = true;
+
     try {
       this.recognition.start();
       return true;
     } catch (err: any) {
+      if (err.name === 'InvalidStateError' || err.message?.includes('already started')) {
+        this.isListening = true;
+        return true;
+      }
+      this.shouldBeListening = false;
+      this.isListening = false;
       handlers.onError?.(err.message || 'Failed to start microphone');
       return false;
     }
   }
 
   public stop() {
-    if (this.recognition && this.isListening) {
+    this.shouldBeListening = false;
+    if (this.recognition) {
       try {
         this.recognition.stop();
       } catch {
-        // Ignore stop errors
+        // Ignore stop error
       }
     }
     this.isListening = false;
   }
 
   public toggle(handlers: SpeechRecognitionHandlers): boolean {
-    if (this.isListening) {
+    if (this.isListening || this.shouldBeListening) {
       this.stop();
       return false;
     } else {
-      return this.start(handlers);
+      void this.start(handlers);
+      return true;
     }
   }
 }

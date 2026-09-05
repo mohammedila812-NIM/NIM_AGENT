@@ -7,7 +7,7 @@ import {
   Download, Code2, Bookmark, Bell, Mic, MicOff,
 } from 'lucide-react';
 import { MarkdownMessage } from './MarkdownMessage';
-import { getWebSpeechRecognizer } from '../../../lib/voice/speech';
+import { getWebSpeechRecognizer, openMicrophonePermissionPage } from '../../../lib/voice/speech';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -208,7 +208,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   const [input, setInput] = useState('');
   const [visionOptIn, setVisionOptIn] = useState(false);
   const [isListening, setIsListening] = useState(false);
-  const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
+  const [voiceNotice, setVoiceNotice] = useState<{ text: string; action?: 'grant_permission'; type?: 'info' | 'error' } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const speechRecognizer = useRef(getWebSpeechRecognizer());
 
@@ -216,33 +216,48 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, agentSteps, taskStatus]);
 
-  const toggleVoiceInput = () => {
+  const toggleVoiceInput = async () => {
     const recognizer = speechRecognizer.current;
     if (isListening) {
       recognizer.stop();
       setIsListening(false);
       setVoiceNotice(null);
     } else {
-      setVoiceNotice('🎙️ Listening... Speak your prompt naturally.');
-      const ok = recognizer.start({
-        onStart: () => setIsListening(true),
-        onInterim: (text: string) => setInput(text),
+      setVoiceNotice({ text: '🎙️ Listening... Speak your prompt naturally.', type: 'info' });
+      const ok = await recognizer.start({
+        onStart: () => {
+          setIsListening(true);
+        },
+        onInterim: (text: string) => {
+          setInput(text);
+        },
         onResult: (text: string) => {
           setInput(text);
           setVoiceNotice(null);
           setIsListening(false);
         },
         onError: (err: string) => {
-          setVoiceNotice(`⚠️ Voice input: ${err}`);
           setIsListening(false);
+          if (err === 'permission-denied') {
+            setVoiceNotice({
+              text: 'Microphone access required for voice input.',
+              action: 'grant_permission',
+              type: 'error',
+            });
+          } else {
+            setVoiceNotice({
+              text: `Voice input notice: ${err}`,
+              type: 'error',
+            });
+          }
         },
         onEnd: () => {
           setIsListening(false);
-          setVoiceNotice(null);
         },
       });
+
       if (!ok) {
-        setVoiceNotice('⚠️ Web Speech is not available.');
+        setIsListening(false);
       }
     }
   };
@@ -371,9 +386,32 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         </div>
 
         {voiceNotice && (
-          <div className="text-xs px-2 py-1 rounded bg-brand-950/80 border border-brand-700/60 text-brand-300 flex items-center gap-1.5 animate-pulse">
-            <Mic className="w-3.5 h-3.5 text-brand-400" />
-            <span>{voiceNotice}</span>
+          <div
+            className={`text-xs px-2.5 py-1.5 rounded-xl border flex items-center justify-between gap-2 animate-in fade-in ${
+              voiceNotice.type === 'error'
+                ? 'bg-rose-950/80 border-rose-700/60 text-rose-300'
+                : 'bg-brand-950/80 border-brand-700/60 text-brand-300 animate-pulse'
+            }`}
+          >
+            <div className="flex items-center gap-1.5 min-w-0">
+              <Mic className={`w-3.5 h-3.5 shrink-0 ${isListening ? 'text-brand-400 animate-pulse' : 'text-rose-400'}`} />
+              <span className="truncate">{voiceNotice.text}</span>
+            </div>
+            {voiceNotice.action === 'grant_permission' && (
+              <button
+                type="button"
+                onClick={() => {
+                  openMicrophonePermissionPage();
+                  setVoiceNotice({
+                    text: 'Click "Allow" in the opened tab, then click the mic icon again.',
+                    type: 'info',
+                  });
+                }}
+                className="px-2 py-0.5 bg-brand-600 hover:bg-brand-500 text-white font-medium rounded text-[11px] shrink-0 transition"
+              >
+                Grant Access
+              </button>
+            )}
           </div>
         )}
 
