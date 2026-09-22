@@ -1,19 +1,32 @@
+"""
+NIM_AGENT Core Agent Orchestrator & ReAct Execution Loop.
+Features:
+- Multi-Turn Session Scratchpad (deterministic recall of files, windows, and context)
+- Manus / Claude-style Autonomous Visual Grounding & Reflection Loop
+- Code-Free Extensible Skills Engine integration
+- Robust tool calling, streaming SSE, and human-in-the-loop approvals
+"""
+
 import asyncio
 import json
 import logging
+import os
+import time
 import uuid
-from typing import Any, AsyncGenerator, Callable, Dict, List, Optional
-from src.config import AgentConfig
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, AsyncGenerator, Callable, Dict, List, Optional, Set
+
+from src.config import AgentConfig, APP_DIR
 from src.llm.client import LLMClient
 from src.llm.router import ModelRouter
-from src.llm.types import (
-    ChatMessage,
-    ChatCompletionRequest,
-    ToolCall
-)
-from src.security.guard import ActionRiskLevel
-from src.tools.base import ToolContext
+from src.llm.types import ChatMessage, ChatCompletionRequest, ToolCall
+from src.tools.base import ToolContext, ToolResult
 from src.tools.registry import UnifiedToolRegistry, get_tool_registry
+from src.perception.window_manager import WindowManager
+from src.perception.excel import SpreadsheetAnalyzer
+
+# Tool imports
 from src.tools.file_tools import (
     ReadFileTool,
     WriteFileTool,
@@ -31,15 +44,8 @@ from src.tools.system_tools import (
     NotifyUserTool,
     GetSystemInfoTool
 )
-from src.tools.undo_tools import (
-    UndoLastActionTool,
-    ListUndoHistoryTool,
-    RestoreSnapshotTool
-)
-from src.tools.web_tools import (
-    WebSearchTool,
-    ReadUrlTool
-)
+from src.tools.undo_tools import UndoLastActionTool, ListUndoHistoryTool, RestoreSnapshotTool
+from src.tools.web_tools import WebSearchTool, ReadUrlTool
 from src.tools.perception_tools import (
     AnalyzeSpreadsheetTool,
     GetActiveWindowInfoTool,
@@ -100,24 +106,106 @@ from src.tools.voice_tools import (
     ToggleVoiceInputTool,
     SetVoicePersonaTool
 )
+from src.tools.update_tools import (
+    CheckForUpdatesTool,
+    ApplyProjectUpdateTool
+)
 from src.bridge.proxy_tools import BrowserResearchTool
-from src.tools.screen_coord_tools import register_screen_coord_tools
-from src.tools.subagent_tools import register_subagent_tools
+from src.skills.manager import (
+    get_skill_manager,
+    ListSkillsTool,
+    ReadSkillTool,
+    RunSkillScriptTool
+)
 from .prompts import SYSTEM_PROMPT, INTENT_CLASSIFICATION_PROMPT
 from .state import TaskState, AgentStep, TaskStatus
 from .memory import get_memory_store
-from .session_memory import get_session_memory, SessionMemoryManager
-from src.tools.memory_tools import get_memory_tools
+from src.agents.specialists import SpecialistRouter
+from src.security.guard import ActionRiskLevel, SecurityGuard
 
 logger = logging.getLogger(__name__)
 
-from src.agents.specialists import SpecialistRouter
-from src.security.guard import SecurityGuard
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Multi-Turn Session Scratchpad
+# ─────────────────────────────────────────────────────────────────────────────
+
+@dataclass
+class SessionScratchpad:
+    """
+    Maintains compact, deterministic memory of created files, active windows,
+    and conversational context across multi-turn tasks.
+    """
+    active_files: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    active_windows: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    recent_tasks: List[Dict[str, Any]] = field(default_factory=list)
+    recent_dialogue: List[Dict[str, str]] = field(default_factory=list)
+
+    def record_file(self, path: str, purpose: str = "Created/Modified"):
+        norm_path = os.path.normpath(path)
+        self.active_files[norm_path] = {
+            "path": norm_path,
+            "filename": os.path.basename(norm_path),
+            "purpose": purpose,
+            "timestamp": time.time()
+        }
+
+    def record_window(self, app_name: str, pid: Optional[int] = None, title: Optional[str] = None):
+        self.active_windows[app_name] = {
+            "app_name": app_name,
+            "pid": pid,
+            "title": title or app_name,
+            "timestamp": time.time()
+        }
+
+    def record_task_turn(self, user_goal: str, assistant_summary: str):
+        self.recent_tasks.append({
+            "goal": user_goal,
+            "summary": assistant_summary,
+            "timestamp": time.time()
+        })
+        self.recent_dialogue.append({"role": "user", "content": user_goal})
+        self.recent_dialogue.append({"role": "assistant", "content": assistant_summary})
+        if len(self.recent_tasks) > 8:
+            self.recent_tasks = self.recent_tasks[-8:]
+        if len(self.recent_dialogue) > 12:
+            self.recent_dialogue = self.recent_dialogue[-12:]
+
+    def clear(self):
+        self.active_files.clear()
+        self.active_windows.clear()
+        self.recent_tasks.clear()
+        self.recent_dialogue.clear()
+
+    def format_scratchpad_prompt(self) -> str:
+        if not self.active_files and not self.active_windows and not self.recent_tasks:
+            return ""
+
+        lines = ["[ACTIVE SESSION SCRATCHPAD]"]
+        if self.active_files:
+            lines.append("• Recent Files & Artifacts (refer to these if the user mentions 'that file', 'the sheet', etc.):")
+            for p, info in list(self.active_files.items())[-5:]:
+                lines.append(f"  - {info['filename']} ({info['path']}) -> {info['purpose']}")
+        if self.active_windows:
+            lines.append("• Active Applications:")
+            for app, win in list(self.active_windows.items())[-5:]:
+                lines.append(f"  - {win['app_name']} (PID: {win['pid']}, Title: '{win['title']}')")
+        if self.recent_tasks:
+            lines.append("• Prior Goals in this Session:")
+            for t in self.recent_tasks[-3:]:
+                lines.append(f"  - User: \"{t['goal']}\" -> Result: {t['summary'][:120]}")
+        return "\n".join(lines)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Agent Orchestrator
+# ─────────────────────────────────────────────────────────────────────────────
 
 class AgentOrchestrator:
     """
-    Main Agent Orchestrator for NIM JARVIS Desktop.
-    Executes the ReAct Loop (Think -> Act -> Observe -> Repeat) natively across the OS.
+    Main Agent Orchestrator for NIM_AGENT.
+    Executes the ReAct Loop (Think -> Act -> Observe -> Repeat) natively across the OS,
+    enhanced with reflective visual verification and code-free skills.
     """
 
     def __init__(
@@ -132,18 +220,24 @@ class AgentOrchestrator:
             primary_model=self.config.model
         )
         self.memory_store = get_memory_store()
-        self.session_memory = get_session_memory()
+        self.scratchpad = SessionScratchpad()
+        self.skill_manager = get_skill_manager()
         self._cancel_event = asyncio.Event()
         self.is_busy: bool = False
         self._register_default_tools()
 
     def cancel_current_task(self) -> bool:
-        """Signals cancellation to stop the current LLM generation and tool executions immediately. Returns True if a busy task was cancelled."""
+        """Signals cancellation to stop the current LLM generation and tool executions immediately."""
         if self.is_busy:
             self._cancel_event.set()
             logger.info("Task cancellation signal received.")
             return True
         return False
+
+    def reset_session(self) -> None:
+        """Clears multi-turn session scratchpad for a clean slate."""
+        self.scratchpad.clear()
+        logger.info("Session scratchpad cleared.")
 
     def _register_default_tools(self):
         """Registers all built-in desktop tools."""
@@ -210,12 +304,19 @@ class AgentOrchestrator:
             ListenVoiceTool(),
             ToggleVoiceInputTool(),
             SetVoicePersonaTool(),
+            CheckForUpdatesTool(),
+            ApplyProjectUpdateTool(),
             BrowserResearchTool(),
+            ListSkillsTool(),
+            ReadSkillTool(),
+            RunSkillScriptTool(),
         ]
-        for t in tools + get_memory_tools():
+        for t in tools:
             self.tool_registry.register(t)
-        register_screen_coord_tools(self.tool_registry)
-        register_subagent_tools(self.tool_registry)
+
+    @staticmethod
+    def _route_temperature(route, fallback: float) -> float:
+        return route.provider.default_temperature if route.provider.default_temperature is not None else fallback
 
     async def classify_intent(self, user_goal: str) -> str:
         """Classifies intent as 'agent' or 'chat' to save unnecessary tool overhead."""
@@ -229,7 +330,7 @@ class AgentOrchestrator:
         req = ChatCompletionRequest(
             model=route.model,
             messages=messages,
-            temperature=0.0,
+            temperature=self._route_temperature(route, 0.0),
             max_tokens=150,
             stream=False
         )
@@ -252,36 +353,52 @@ class AgentOrchestrator:
         hitl_callback: Optional[Callable[[str, Dict[str, Any]], Any]] = None
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
-        Executes a user goal through the ReAct agent loop.
-        Yields live event dictionaries for the CLI and UI listeners.
+        Executes a user goal through the enhanced ReAct agent loop.
+        Yields live event dictionaries for CLI, GUI, and WebSocket listeners.
         """
         t_id = task_id or f"task_{uuid.uuid4().hex[:8]}"
         self._cancel_event.clear()
         self.is_busy = True
+        session_approved_tools: Set[str] = set()
+        created_artifacts: List[str] = []
+        reflection_done = False
+        execution_step_count = 0
+
         state = TaskState(task_id=t_id, goal=goal, status=TaskStatus.RUNNING)
         try:
             yield {"event": "task_started", "task_id": t_id, "goal": goal}
 
-            # 0. Autonomous Context Resolution: Detect if prompt relies on prior session context
-            context_hint = self.session_memory.detect_context_need(goal)
-            if context_hint:
-                yield {"event": "context_resolved", "context": context_hint}
-
-            # 1. Match Specialist Agent Profile
+            # 1. Match Specialist Profile
             specialist = SpecialistRouter.match_specialist(goal)
             system_content = f"{SYSTEM_PROMPT}\n\n[Active Specialist Profile: {specialist.name}]\n{specialist.system_prompt_addon}"
-            if context_hint:
-                system_content = f"{system_content}\n\n{context_hint}"
 
-            # 2. Intent check
+            # 2. Inject Skills matching the goal
+            matched_skills = self.skill_manager.match_skills(goal)
+            if matched_skills:
+                skills_section = ["\n[ACTIVATED SKILLS]"]
+                for s in matched_skills:
+                    skills_section.append(f"• Skill: {s.name} - {s.description}")
+                    skills_section.append(f"Guidelines:\n{s.instructions}\n")
+                    yield {"event": "skill_activated", "skill": s.name, "description": s.description}
+                system_content += "\n" + "\n".join(skills_section)
+
+            # 3. Inject Session Scratchpad (multi-turn context)
+            scratchpad_prompt = self.scratchpad.format_scratchpad_prompt()
+            if scratchpad_prompt:
+                system_content += f"\n\n{scratchpad_prompt}"
+
+            # 4. Intent Check
             intent = await self.classify_intent(goal)
             yield {"event": "intent_classified", "intent": intent, "specialist": specialist.id}
 
-            # 3. Setup ReAct loop messages
-            messages: List[ChatMessage] = [
-                ChatMessage(role="system", content=system_content),
-                ChatMessage(role="user", content=goal)
-            ]
+            # 5. Build ReAct loop messages with recent conversation context
+            messages: List[ChatMessage] = [ChatMessage(role="system", content=system_content)]
+
+            # Carry forward the last 2 multi-turn interactions for natural context
+            for prev in self.scratchpad.recent_dialogue[-4:]:
+                messages.append(ChatMessage(role=prev["role"], content=prev["content"]))
+
+            messages.append(ChatMessage(role="user", content=goal))
 
             route = self.model_router.get_route(task_type="planning")
             client = LLMClient(base_url=route.provider.base_url, api_key=route.provider.api_key)
@@ -291,21 +408,21 @@ class AgentOrchestrator:
             while iteration < self.config.max_iterations:
                 if self._cancel_event.is_set():
                     state.status = TaskStatus.CANCELLED
-                    yield {"event": "task_cancelled", "task_id": t_id, "message": "Task cancelled by user (Escape)"}
+                    yield {"event": "task_cancelled", "task_id": t_id, "message": "Task cancelled by user"}
                     return
 
                 iteration += 1
                 yield {"event": "iteration_start", "iteration": iteration}
 
-                # Sliding window context compression: Keep system prompt, user goal, and last 12 turns
-                if len(messages) > 14:
-                    messages = [messages[0], messages[1]] + messages[-12:]
+                # Sliding window context compression: Keep system, first user goal, and last 12 messages
+                if len(messages) > 16:
+                    messages = [messages[0], messages[1]] + messages[-14:]
 
                 req = ChatCompletionRequest(
                     model=route.model,
                     messages=messages,
                     tools=tools,
-                    temperature=self.config.temperature,
+                    temperature=self._route_temperature(route, self.config.temperature),
                     max_tokens=self.config.max_tokens,
                     stream=True
                 )
@@ -317,7 +434,7 @@ class AgentOrchestrator:
                 async for stream_ev in client.stream_chat(req):
                     if self._cancel_event.is_set():
                         state.status = TaskStatus.CANCELLED
-                        yield {"event": "task_cancelled", "task_id": t_id, "message": "Task cancelled by user (Escape)"}
+                        yield {"event": "task_cancelled", "task_id": t_id, "message": "Task cancelled by user"}
                         return
 
                     if stream_ev.event_type == "reasoning":
@@ -343,10 +460,10 @@ class AgentOrchestrator:
 
                 if self._cancel_event.is_set():
                     state.status = TaskStatus.CANCELLED
-                    yield {"event": "task_cancelled", "task_id": t_id, "message": "Task cancelled by user (Escape)"}
+                    yield {"event": "task_cancelled", "task_id": t_id, "message": "Task cancelled by user"}
                     return
 
-                # Append assistant turn
+                # Append assistant response
                 assistant_msg = ChatMessage(
                     role="assistant",
                     content=accumulated_content or None,
@@ -355,8 +472,93 @@ class AgentOrchestrator:
                 )
                 messages.append(assistant_msg)
 
-                # If no tool calls were made, the agent finished its reasoning/answer
+                # ─────────────────────────────────────────────────────────────
+                # Reflective Verification & Self-Correction Loop (Manus / Claude Style)
+                # ─────────────────────────────────────────────────────────────
                 if not emitted_tool_calls:
+                    # If this is the first completion pass and tools were executed, perform autonomous verification
+                    if not reflection_done and execution_step_count > 0:
+                        reflection_done = True
+                        audit_reports = []
+                        has_critical_error = False
+
+                        # 1. Deterministic quality audit of all created artifacts
+                        for fpath in created_artifacts:
+                            p = Path(fpath)
+                            if not p.exists():
+                                continue
+                            ext = p.suffix.lower()
+                            if ext in [".xlsx", ".xls", ".csv"]:
+                                try:
+                                    res = SpreadsheetAnalyzer.analyze_file(str(p))
+                                    if res.get("success"):
+                                        errs = res.get("errors_detected", 0)
+                                        err_list = res.get("error_cells", [])
+                                        f_count = res.get("formulas_detected", 0)
+                                        dims = res.get("dimensions", {})
+                                        if errs > 0:
+                                            has_critical_error = True
+                                            audit_reports.append(
+                                                f"❌ BROKEN FORMULAS in {p.name}: {errs} error cell(s) detected: {err_list}. "
+                                                f"You must fix these broken formulas before finishing."
+                                            )
+                                            yield {"event": "artifact_audit_result", "path": str(p), "success": False, "errors": errs, "details": err_list}
+                                        else:
+                                            audit_reports.append(
+                                                f"✓ VERIFIED {p.name}: {f_count} active formula(s) verified, 0 errors, {dims.get('rows', 0)} rows x {dims.get('columns', 0)} cols."
+                                            )
+                                            yield {"event": "artifact_audit_result", "path": str(p), "success": True, "formulas": f_count, "dimensions": dims}
+                                except Exception as e:
+                                    logger.warning("Spreadsheet audit warning: %s", e)
+
+                            elif ext == ".py":
+                                try:
+                                    code = p.read_text(encoding="utf-8", errors="replace")
+                                    compile(code, str(p), "exec")
+                                    audit_reports.append(f"✓ VERIFIED {p.name}: Python syntax is 100% valid.")
+                                    yield {"event": "artifact_audit_result", "path": str(p), "success": True, "type": "python_syntax_valid"}
+                                except SyntaxError as se:
+                                    has_critical_error = True
+                                    audit_reports.append(f"❌ SYNTAX ERROR in {p.name}: line {se.lineno}: {se.msg}")
+                                    yield {"event": "artifact_audit_result", "path": str(p), "success": False, "error": str(se)}
+                            else:
+                                if p.stat().st_size > 0:
+                                    audit_reports.append(f"✓ VERIFIED {p.name}: Generated file size is {p.stat().st_size} bytes.")
+                                    yield {"event": "artifact_audit_result", "path": str(p), "success": True, "bytes": p.stat().st_size}
+
+                        # 2. Automatic Presentation: Open spreadsheet or document for immediate user viewing
+                        for fpath in created_artifacts:
+                            p = Path(fpath)
+                            if p.exists() and p.suffix.lower() in [".xlsx", ".xls", ".csv", ".docx", ".pdf", ".pptx"]:
+                                try:
+                                    wm = WindowManager()
+                                    app_kind = "excel" if p.suffix.lower() in [".xlsx", ".xls", ".csv"] else "explorer"
+                                    yield {"event": "artifact_presentation", "path": str(p), "app": app_kind}
+                                    if p.suffix.lower() in [".xlsx", ".xls", ".csv"]:
+                                        await wm.open_application("excel", args=[str(p)], wait_seconds=1.0)
+                                        self.scratchpad.record_window("EXCEL.EXE", title=p.name)
+                                except Exception as e:
+                                    logger.warning("Auto presentation warning: %s", e)
+
+                        audit_summary_str = "\n".join(audit_reports) if audit_reports else "All operations checked."
+
+                        if has_critical_error:
+                            critique_prompt = (
+                                f"[Autonomous Quality Gate FAILED]:\n{audit_summary_str}\n\n"
+                                f"You MUST use tools to fix the errors listed above before presenting your final answer to the user."
+                            )
+                        else:
+                            critique_prompt = (
+                                f"[Self-Reflection & Quality Verification Passed]:\n{audit_summary_str}\n\n"
+                                "1. Confirm all user requirements were fully satisfied.\n"
+                                "2. If completed to the highest production standard, summarize your results cleanly and concisely."
+                            )
+
+                        messages.append(ChatMessage(role="user", content=critique_prompt))
+                        yield {"event": "verification_reflection_start", "message": "Autonomous quality inspection complete.", "audit": audit_summary_str}
+                        continue
+
+                    # Final conclusion
                     state.status = TaskStatus.COMPLETED
                     state.final_answer = accumulated_content
                     yield {
@@ -364,17 +566,11 @@ class AgentOrchestrator:
                         "final_answer": accumulated_content,
                         "task_id": t_id,
                         "tokens": state.prompt_tokens + state.completion_tokens,
-                        "cost_usd": state.estimated_usd_cost
+                        "cost_usd": state.estimated_usd_cost,
+                        "artifacts": created_artifacts
                     }
-                    # Extract touched files from steps
-                    touched_files: List[str] = []
-                    for s in state.steps:
-                        if s.tool_args and isinstance(s.tool_args, dict):
-                            for k in ("path", "file_path", "destination", "source", "output_path", "filename"):
-                                v = s.tool_args.get(k)
-                                if v and isinstance(v, str) and v not in touched_files:
-                                    touched_files.append(v)
 
+                    # Record in persistent and session scratchpad memory
                     self.memory_store.record_task(
                         task_id=t_id,
                         goal=goal,
@@ -383,20 +579,14 @@ class AgentOrchestrator:
                         steps_count=len(state.steps),
                         tokens=state.prompt_tokens + state.completion_tokens
                     )
-                    self.session_memory.record_turn(
-                        turn_id=t_id,
-                        goal=goal,
-                        final_answer=accumulated_content,
-                        tools_used=[s.tool_name for s in state.steps],
-                        files_touched=touched_files
-                    )
+                    self.scratchpad.record_task_turn(goal, accumulated_content[:300] if accumulated_content else "Completed")
                     return
 
-                # Execute tool calls
+                # Execute emitted tool calls
                 for tc in emitted_tool_calls:
                     if self._cancel_event.is_set():
                         state.status = TaskStatus.CANCELLED
-                        yield {"event": "task_cancelled", "task_id": t_id, "message": "Task cancelled by user (Escape)"}
+                        yield {"event": "task_cancelled", "task_id": t_id, "message": "Task cancelled by user"}
                         return
 
                     tool_name = tc.name
@@ -405,78 +595,90 @@ class AgentOrchestrator:
                     except Exception:
                         tool_args = {}
 
+                    execution_step_count += 1
                     yield {"event": "tool_call_start", "tool": tool_name, "args": tool_args}
 
-                    # Dynamic Risk Evaluation via SecurityGuard
+                    # Human-In-The-Loop Approval check
                     calculated_risk = SecurityGuard.evaluate_tool_call(tool_name, tool_args)
-                    if calculated_risk in [ActionRiskLevel.DESTRUCTIVE, ActionRiskLevel.CRITICAL] and hitl_callback:
-                        res_fut = hitl_callback(tool_name, tool_args)
-                        approved = await res_fut if asyncio.iscoroutine(res_fut) or isinstance(res_fut, asyncio.Future) else bool(res_fut)
-                        if not approved:
-                            obs_str = f"Action cancelled: User denied permission to execute {tool_name}."
+                    user_approved = False
+                    if calculated_risk in [ActionRiskLevel.DESTRUCTIVE, ActionRiskLevel.CRITICAL]:
+                        if tool_name in session_approved_tools:
+                            user_approved = True
+                        elif hitl_callback:
+                            yield {"event": "approval_required", "tool": tool_name, "args": tool_args, "risk": calculated_risk.value}
+                            res_fut = hitl_callback(tool_name, tool_args)
+                            approval_val = await res_fut if asyncio.iscoroutine(res_fut) or isinstance(res_fut, asyncio.Future) else res_fut
+
+                            is_approved = False
+                            if isinstance(approval_val, str):
+                                is_approved = approval_val.lower() in ["y", "yes", "a", "always"]
+                                if approval_val.lower() in ["a", "always"]:
+                                    session_approved_tools.add(tool_name)
+                            else:
+                                is_approved = bool(approval_val)
+
+                            if not is_approved:
+                                obs_str = (
+                                    f"Action cancelled: Operator denied permission to execute tool '{tool_name}'. "
+                                    f"Do NOT retry this exact action. Please pivot and propose an alternative safe approach or inform the user."
+                                )
+                                messages.append(ChatMessage(role="tool", content=obs_str, tool_call_id=tc.id, name=tool_name))
+                                yield {"event": "tool_call_denied", "tool": tool_name, "reason": "Operator denied permission"}
+                                continue
+                            user_approved = True
+                        else:
+                            obs_str = (
+                                f"Action blocked: Tool '{tool_name}' requires explicit operator approval before execution, "
+                                f"but no approval handler was available."
+                            )
                             messages.append(ChatMessage(role="tool", content=obs_str, tool_call_id=tc.id, name=tool_name))
-                            yield {"event": "tool_call_denied", "tool": tool_name}
+                            yield {"event": "tool_call_denied", "tool": tool_name, "reason": "Explicit operator approval required"}
                             continue
 
                     # Execute tool
-                    context = ToolContext(
-                        task_id=t_id,
-                        metadata={
-                            "tool_registry": self.tool_registry,
-                            "llm_client": client,
-                        }
-                    )
-                    result = await self.tool_registry.execute_tool(tool_name, tool_args, context)
-                    obs_str = result.to_output_str()
+                    context = ToolContext(task_id=t_id, user_approved=user_approved)
+                    t_res: ToolResult = await self.tool_registry.execute_tool(tool_name, tool_args, context)
 
-                    # Truncate individual tool observations to 4,000 characters to prevent context window explosion
-                    if len(obs_str) > 4000:
-                        obs_str = obs_str[:4000] + f"\n... [Output truncated from {len(obs_str)} chars to 4000 chars for context preservation]"
+                    # Track artifacts and files created
+                    if tool_name in ["write_file", "generate_document", "convert_file"]:
+                        target_path = tool_args.get("file_path") or tool_args.get("path") or tool_args.get("target_path") or tool_args.get("output_path")
+                        if target_path:
+                            norm = os.path.normpath(str(target_path))
+                            if norm not in created_artifacts:
+                                created_artifacts.append(norm)
+                            self.scratchpad.record_file(norm, purpose=f"Created by {tool_name}")
 
-                    step = AgentStep(
-                        index=len(state.steps) + 1,
-                        reasoning=accumulated_reasoning,
-                        tool_name=tool_name,
-                        tool_args=tool_args,
-                        tool_result=obs_str,
-                        snapshot_id=result.snapshot_id,
-                        success=result.success
-                    )
-                    state.add_step(step)
+                    elif tool_name == "open_application":
+                        app_name = tool_args.get("app_name", "")
+                        win_pid = t_res.data.get("pid") if isinstance(t_res.data, dict) else None
+                        self.scratchpad.record_window(app_name, pid=win_pid)
 
-                    yield {
-                        "event": "tool_call_result",
-                        "tool": tool_name,
-                        "success": result.success,
-                        "result": obs_str,
-                        "snapshot_id": result.snapshot_id
-                    }
-
-                    # Feed observation back into dialogue
+                    # Append tool result step
+                    obs_str = t_res.to_output_str()
                     messages.append(ChatMessage(
                         role="tool",
                         content=obs_str,
                         tool_call_id=tc.id,
                         name=tool_name
                     ))
+                    yield {
+                        "event": "tool_call_result",
+                        "tool": tool_name,
+                        "success": t_res.success,
+                        "result": obs_str[:500],
+                        "risk": t_res.risk_level.value
+                    }
 
-            state.status = TaskStatus.FAILED
-            state.error = "Max iterations reached without resolution."
-            self.memory_store.record_task(
-                task_id=t_id,
-                goal=goal,
-                summary="Max iterations reached without resolution.",
-                status="failed",
-                steps_count=len(state.steps),
-                tokens=state.prompt_tokens + state.completion_tokens
-            )
-            yield {
-                "event": "task_failed",
-                "final_answer": "Max iterations reached without resolution.",
-                "task_id": t_id,
-                "error": "Max iterations reached without resolution.",
-                "tokens": state.prompt_tokens + state.completion_tokens,
-                "cost_usd": state.estimated_usd_cost
-            }
+                    step = AgentStep(
+                        index=len(state.steps) + 1,
+                        reasoning=accumulated_reasoning,
+                        tool_name=tool_name,
+                        tool_args=tool_args,
+                        tool_result=obs_str[:1000],
+                        success=t_res.success
+                    )
+                    state.steps.append(step)
+
         finally:
             self.is_busy = False
+            yield {"event": "task_finished", "task_id": t_id, "status": state.status.value}

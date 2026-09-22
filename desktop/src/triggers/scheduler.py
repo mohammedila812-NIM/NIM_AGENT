@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from src.agent.memory import get_memory_store
 from src.perception.window_manager import WindowManager
 
 logger = logging.getLogger(__name__)
@@ -186,7 +187,6 @@ class SchedulerEngine:
         execution_callback: Optional[Callable[[str], Any]] = None,
         poll_interval: float = 3.0
     ):
-        from src.agent.memory import get_memory_store
         self.memory_store = get_memory_store()
         self.window_manager = WindowManager()
         self.execution_callback = execution_callback

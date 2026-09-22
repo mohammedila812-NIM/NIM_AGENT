@@ -82,7 +82,7 @@ class VisionClient:
         key = self.secret_store.get_key(requested_id)
         preset = get_provider_preset(requested_id)
         if preset and key:
-            return requested_id, requested_model
+            return preset.id, requested_model
 
         # Walk fallback priority list
         for p_id, p_model in VISION_PROVIDER_PRIORITY:
@@ -108,6 +108,13 @@ class VisionClient:
     @property
     def _api_key(self) -> Optional[str]:
         return self.secret_store.get_key(self._provider_id)
+
+    @property
+    def _temperature(self) -> float:
+        preset = get_provider_preset(self._provider_id)
+        if preset and preset.default_temperature is not None:
+            return preset.default_temperature
+        return 0.2
 
     def get_status(self) -> Dict[str, Any]:
         """Returns current vision provider configuration for /vision_status command."""
@@ -161,7 +168,7 @@ class VisionClient:
                 }
             ],
             "max_tokens": 1024,
-            "temperature": 0.2,
+            "temperature": self._temperature,
         }
 
         headers = {

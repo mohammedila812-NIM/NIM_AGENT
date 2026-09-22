@@ -6,7 +6,7 @@ PROVIDER_PRESETS: List[ProviderConfig] = [
         id="nim-cloud",
         label="NVIDIA NIM (cloud)",
         base_url="https://integrate.api.nvidia.com/v1",
-        default_model="meta/llama-3.3-70b-instruct"
+        default_model="meta/llama-3.2-11b-vision-instruct"
     ),
     ProviderConfig(
         id="nim-local",
@@ -18,7 +18,7 @@ PROVIDER_PRESETS: List[ProviderConfig] = [
         id="gemini",
         label="Google AI Studio (Gemini API)",
         base_url="https://generativelanguage.googleapis.com/v1beta/openai",
-        default_model="gemini-3.6-flash"
+        default_model="models/gemini-flash-lite-latest"
     ),
     ProviderConfig(
         id="openai",
@@ -49,10 +49,26 @@ PROVIDER_PRESETS: List[ProviderConfig] = [
         label="Custom endpoint",
         base_url="http://localhost:8080/v1",
         default_model="default"
+    ),
+    ProviderConfig(
+        id="explabs",
+        label="Experiential Labs",
+        base_url="https://api.experientiallabs.ai/v1",
+        default_model="claude-fable-5",
+        default_temperature=1.0
     )
 ]
 
+PROVIDER_ALIASES = {
+    "exp_ai": "explabs",
+    "exp-ai": "explabs",
+    "experientiallabs": "explabs",
+    "experiential-labs": "explabs",
+}
+
 def get_provider_preset(provider_id: str) -> Optional[ProviderConfig]:
+    provider_id = provider_id.strip().lower()
+    provider_id = PROVIDER_ALIASES.get(provider_id, provider_id)
     for preset in PROVIDER_PRESETS:
         if preset.id == provider_id:
             return preset

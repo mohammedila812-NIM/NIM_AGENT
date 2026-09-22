@@ -14,11 +14,27 @@ KNOWN_PROVIDERS = [
     "groq",
     "ollama",
     "kira",
+    "explabs",
     "custom",
     "search_api",
     "elevenlabs",
     "bridge_auth_token"
 ]
+
+PROVIDER_ENV_ALIASES = {
+    "explabs": ["EXPLABS_API_KEY"],
+}
+
+PROVIDER_ALIASES = {
+    "exp_ai": "explabs",
+    "exp-ai": "explabs",
+    "experientiallabs": "explabs",
+    "experiential-labs": "explabs",
+}
+
+def normalize_provider_id(provider_id: str) -> str:
+    provider_id = provider_id.strip().lower()
+    return PROVIDER_ALIASES.get(provider_id, provider_id)
 
 class SecretStore:
     """
@@ -33,6 +49,7 @@ class SecretStore:
 
     def set_key(self, provider_id: str, key_value: str) -> bool:
         """Store an API key securely."""
+        provider_id = normalize_provider_id(provider_id)
         try:
             keyring.set_password(self.service_name, provider_id, key_value.strip())
             self._cache[provider_id] = key_value.strip()
@@ -46,6 +63,7 @@ class SecretStore:
 
     def get_key(self, provider_id: str) -> Optional[str]:
         """Retrieve an API key securely."""
+        provider_id = normalize_provider_id(provider_id)
         # 1. Check in-memory cache first
         if provider_id in self._cache:
             return self._cache[provider_id]
@@ -56,6 +74,7 @@ class SecretStore:
             f"{provider_id.upper().replace('-', '_')}_KEY",
             f"NIM_{provider_id.upper().replace('-', '_')}_KEY",
         ]
+        env_var_names.extend(PROVIDER_ENV_ALIASES.get(provider_id, []))
         for var in env_var_names:
             if var in os.environ:
                 val = os.environ[var].strip()
@@ -75,6 +94,7 @@ class SecretStore:
 
     def delete_key(self, provider_id: str) -> bool:
         """Remove an API key from secure storage."""
+        provider_id = normalize_provider_id(provider_id)
         self._cache.pop(provider_id, None)
         try:
             keyring.delete_password(self.service_name, provider_id)

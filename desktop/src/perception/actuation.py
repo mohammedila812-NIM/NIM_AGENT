@@ -109,6 +109,28 @@ class ActuationEngine:
         if not clean_target:
             return ActuationTargetResult(found=False, source_tier="none", error="Empty element target name")
 
+        # Fast path: check UIA Fast Grounding cache
+        try:
+            from src.perception.uia_fast_grounding import get_uia_fast_grounding
+            fast_idx = get_uia_fast_grounding()
+            cached_el = fast_idx.resolve_element(element_name, control_type)
+            if cached_el:
+                b = cached_el.get("bounds", {})
+                cx = b.get("left", 0) + b.get("width", 0) // 2
+                cy = b.get("top", 0) + b.get("height", 0) // 2
+                if cx > 0 and cy > 0:
+                    return ActuationTargetResult(
+                        found=True,
+                        source_tier="uia",
+                        center_x=cx,
+                        center_y=cy,
+                        bounds=b,
+                        element_name=cached_el.get("name", element_name),
+                        control_type=cached_el.get("control_type", "")
+                    )
+        except Exception:
+            pass
+
         try:
             from pywinauto import Desktop
             app_desktop = Desktop(backend="uia")
@@ -129,6 +151,11 @@ class ActuationEngine:
 
             # Inspect UI tree elements
             elements = WindowInspector.inspect_ui_tree(hwnd, max_depth=4)
+            try:
+                from src.perception.uia_fast_grounding import get_uia_fast_grounding
+                get_uia_fast_grounding().update_cache(str(hwnd), elements)
+            except Exception:
+                pass
             for el in elements:
                 name = str(el.get("name", "")).strip().lower()
                 auto_id = str(el.get("automation_id", "")).strip().lower()

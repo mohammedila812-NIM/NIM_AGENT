@@ -77,3 +77,45 @@ async def test_agent_orchestrator_cancellation():
             event_types = [e.get("event") for e in collected]
             assert "task_cancelled" in event_types
 
+@pytest.mark.asyncio
+async def test_agent_orchestrator_hitl_approval_denial():
+    orchestrator = AgentOrchestrator()
+
+    with patch.object(orchestrator, "classify_intent", new=AsyncMock(return_value="agent")):
+        step1_events = [
+            StreamEvent(
+                event_type="tool_call",
+                data=ToolCall(
+                    id="call_mock_del",
+                    function={"name": "delete_file", "arguments": "{\"path\": \"important.txt\"}"}
+                )
+            ),
+            StreamEvent(event_type="done", data={})
+        ]
+        step2_events = [
+            StreamEvent(event_type="content", data="Understood, I have aborted the file deletion."),
+            StreamEvent(event_type="done", data={})
+        ]
+
+        call_count = 0
+        async def mock_stream_chat(req):
+            nonlocal call_count
+            call_count += 1
+            events = step1_events if call_count == 1 else step2_events
+            for ev in events:
+                yield ev
+
+        async def deny_hitl(tool_name, tool_args):
+            return "n"
+
+        with patch("src.agent.loop.LLMClient.stream_chat", side_effect=mock_stream_chat):
+            collected = []
+            async for ev in orchestrator.execute_task("Delete important file", hitl_callback=deny_hitl):
+                collected.append(ev)
+
+            event_types = [e.get("event") for e in collected]
+            assert "approval_required" in event_types
+            assert "tool_call_denied" in event_types
+            assert "tool_call_result" not in event_types
+
+

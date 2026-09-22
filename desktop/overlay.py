@@ -10,19 +10,9 @@ import psutil
 import tkinter as tk
 import customtkinter as ctk
 
-try:
-    from theme import THEME
-    from anim import Tween, Loop, lerp_color, ease_out_cubic
-    from acrylic import apply_acrylic
-except ImportError:
-    try:
-        from .theme import THEME
-        from .anim import Tween, Loop, lerp_color, ease_out_cubic
-        from .acrylic import apply_acrylic
-    except ImportError:
-        from desktop.theme import THEME
-        from desktop.anim import Tween, Loop, lerp_color, ease_out_cubic
-        from desktop.acrylic import apply_acrylic
+from .theme import THEME
+from .anim import Tween, Loop, lerp_color, ease_out_cubic
+from .acrylic import apply_acrylic
 
 
 class JarvisHUDOverlay:

@@ -75,11 +75,13 @@ class SpreadsheetAnalyzer:
                         })
 
                     # Check for error values (#VALUE!, #REF!, #DIV/0!, etc.)
-                    val_str = str(eval_val or "")
-                    if any(err in val_str for err in ["#NULL!", "#DIV/0!", "#VALUE!", "#REF!", "#NAME?", "#NUM!", "#N/A"]):
+                    val_str = str(eval_val if eval_val is not None else "")
+                    raw_str = str(raw_val if raw_val is not None else "")
+                    err_tokens = ["#NULL!", "#DIV/0!", "#VALUE!", "#REF!", "#NAME?", "#NUM!", "#N/A"]
+                    if any(err in val_str or err in raw_str for err in err_tokens):
                         error_cells.append({
                             "cell": cell_coord,
-                            "error": val_str,
+                            "error": val_str or raw_str,
                             "formula": str(raw_val)
                         })
 

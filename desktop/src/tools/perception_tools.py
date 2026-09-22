@@ -184,12 +184,16 @@ class OcrScreenTextTool(BaseTool):
             except Exception as e:
                 extracted_text = f"[OCR failed: {e}. Try vision_describe_image for AI-powered visual analysis.]"
         else:
-            extracted_text = (
-                f"[Tesseract OCR not found at expected paths. "
-                f"Image captured: {img.width}x{img.height}px. "
-                f"Install Tesseract from https://github.com/UB-Mannheim/tesseract/wiki "
-                f"or use vision_describe_image for AI vision analysis.]"
-            )
+            from src.perception.native_ocr import get_native_ocr
+            native_engine = get_native_ocr()
+            native_res = native_engine.ocr_image(img)
+            if native_res.get("text"):
+                extracted_text = native_res["text"]
+            else:
+                extracted_text = (
+                    f"[Local OCR: no readable text detected on screen region ({img.width}x{img.height}px). "
+                    f"Use vision_describe_image for AI vision analysis.]"
+                )
 
         clean_text = SensitiveDataRedactor.redact_text(extracted_text)
         return ToolResult(

@@ -1,10 +1,8 @@
 import asyncio
 import logging
 import os
-import platform
 import subprocess
 from typing import Any, Dict, Optional
-import psutil
 from .base import BaseTool, ToolContext, ToolResult
 from src.security.guard import ActionRiskLevel, SecurityGuard
 
@@ -33,8 +31,8 @@ class RunCommandTool(BaseTool):
             return ToolResult(success=False, data=None, error="No command provided.")
 
         risk, reason = SecurityGuard.evaluate_shell_command(command)
-        if risk == ActionRiskLevel.CRITICAL:
-            return ToolResult(success=False, data=None, error=f"Command blocked by Security Guard: {reason}", risk_level=risk)
+        if risk == ActionRiskLevel.CRITICAL and not context.user_approved:
+            return ToolResult(success=False, data=None, error=f"Command blocked by Security Guard: {reason}. Explicit operator approval required.", risk_level=risk)
 
         try:
             # Prevent nested powershell -Command wrapping issues

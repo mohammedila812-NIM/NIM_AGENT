@@ -11,10 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-try:
-    import pandas as pd
-except ImportError:
-    pd = None
+import pandas as pd
 from PIL import Image, ImageDraw, ImageFont
 
 logger = logging.getLogger(__name__)
@@ -140,58 +137,27 @@ class FileConverter:
     # -------------------------------------------------------------------------
 
     def _convert_spreadsheet(self, in_p: Path, out_p: Path, src_ext: str, tgt_ext: str):
-        if pd is not None:
-            if src_ext in ["csv", "tsv"]:
-                sep = "\t" if src_ext == "tsv" else ","
-                df = pd.read_csv(in_p, sep=sep)
-            elif src_ext in ["xlsx", "xls"]:
-                df = pd.read_excel(in_p)
-            elif src_ext == "json":
-                df = pd.read_json(in_p)
-            else:
-                raise ValueError(f"Unsupported spreadsheet source: {src_ext}")
-
-            if tgt_ext == "xlsx":
-                with pd.ExcelWriter(out_p, engine="openpyxl") as writer:
-                    df.to_excel(writer, index=False, sheet_name="Sheet1")
-            elif tgt_ext == "csv":
-                df.to_csv(out_p, index=False)
-            elif tgt_ext == "tsv":
-                df.to_csv(out_p, sep="\t", index=False)
-            elif tgt_ext == "json":
-                df.to_json(out_p, orient="records", indent=2)
-            elif tgt_ext == "html":
-                df.to_html(out_p, index=False)
+        if src_ext in ["csv", "tsv"]:
+            sep = "\t" if src_ext == "tsv" else ","
+            df = pd.read_csv(in_p, sep=sep)
+        elif src_ext in ["xlsx", "xls"]:
+            df = pd.read_excel(in_p)
+        elif src_ext == "json":
+            df = pd.read_json(in_p)
         else:
-            # Fallback using standard library csv + openpyxl
-            import csv
-            import openpyxl
-            rows = []
-            if src_ext in ["csv", "tsv"]:
-                sep = "\t" if src_ext == "tsv" else ","
-                with open(in_p, "r", encoding="utf-8", errors="replace") as f:
-                    reader = csv.reader(f, delimiter=sep)
-                    rows = list(reader)
-            elif src_ext in ["xlsx", "xls"]:
-                wb = openpyxl.load_workbook(str(in_p), data_only=True)
-                ws = wb.active
-                rows = [[str(cell.value or "") for cell in row] for row in ws.rows]
-            else:
-                raise ValueError(f"Unsupported spreadsheet source without pandas: {src_ext}")
+            raise ValueError(f"Unsupported spreadsheet source: {src_ext}")
 
-            if tgt_ext == "xlsx":
-                wb = openpyxl.Workbook()
-                ws = wb.active
-                for r in rows:
-                    ws.append(r)
-                wb.save(str(out_p))
-            elif tgt_ext in ["csv", "tsv"]:
-                sep = "\t" if tgt_ext == "tsv" else ","
-                with open(out_p, "w", encoding="utf-8", newline="") as f:
-                    writer = csv.writer(f, delimiter=sep)
-                    writer.writerows(rows)
-            else:
-                raise ValueError(f"Target format '{tgt_ext}' requires pandas")
+        if tgt_ext == "xlsx":
+            with pd.ExcelWriter(out_p, engine="openpyxl") as writer:
+                df.to_excel(writer, index=False, sheet_name="Sheet1")
+        elif tgt_ext == "csv":
+            df.to_csv(out_p, index=False)
+        elif tgt_ext == "tsv":
+            df.to_csv(out_p, sep="\t", index=False)
+        elif tgt_ext == "json":
+            df.to_json(out_p, orient="records", indent=2)
+        elif tgt_ext == "html":
+            df.to_html(out_p, index=False)
 
     # -------------------------------------------------------------------------
     # 3. Image Conversion Engine
@@ -463,17 +429,11 @@ class FileConverter:
             # Sample text/table content
             preview_lines = []
             if ext in ["csv", "tsv"]:
-                if pd is not None:
-                    df = pd.read_csv(p, sep="\t" if ext == "tsv" else ",", nrows=15)
-                    preview_lines = [df.to_string()]
-                else:
-                    preview_lines = p.read_text(encoding="utf-8", errors="ignore").splitlines()[:15]
+                df = pd.read_csv(p, sep="\t" if ext == "tsv" else ",", nrows=15)
+                preview_lines = [df.to_string()]
             elif ext in ["xlsx", "xls"]:
-                if pd is not None:
-                    df = pd.read_excel(p, nrows=15)
-                    preview_lines = [df.to_string()]
-                else:
-                    preview_lines = [f"[Spreadsheet: {p.name}]"]
+                df = pd.read_excel(p, nrows=15)
+                preview_lines = [df.to_string()]
             elif ext in ["txt", "md", "html"]:
                 preview_lines = p.read_text(encoding="utf-8", errors="ignore").splitlines()[:25]
 

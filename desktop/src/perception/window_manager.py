@@ -79,22 +79,71 @@ class WindowManager:
     # 1. App Launcher with Auto-Aliases
     # -------------------------------------------------------------------------
 
-    def resolve_app_executable(self, name_or_path: str) -> str:
-        """Resolves a friendly application alias or checks PATH."""
-        clean = name_or_path.strip().lower()
-        if clean in COMMON_APP_ALIASES:
-            target = COMMON_APP_ALIASES[clean]
-            # Check if resolvable on PATH or via system32 / Program Files
-            which_path = shutil.which(target)
-            if which_path:
-                return which_path
-            return target
+    @staticmethod
+    def _query_registry_app_path(name: str) -> Optional[str]:
+        """Queries Windows App Paths registry for installed application executables."""
+        if os.name != "nt":
+            return None
+        try:
+            import winreg
+            clean = name.lower().strip()
+            candidates = [clean, f"{clean}.exe"] if not clean.endswith(".exe") else [clean]
+            for root in [winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER]:
+                for cand in candidates:
+                    for subkey in [
+                        rf"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{cand}",
+                        rf"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths\{cand}",
+                    ]:
+                        try:
+                            with winreg.OpenKey(root, subkey) as k:
+                                val, _ = winreg.QueryValueEx(k, "")
+                                if val and os.path.exists(val):
+                                    return val
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+        return None
 
-        which_path = shutil.which(name_or_path)
+    def resolve_app_executable(self, name_or_path: str) -> str:
+        """Resolves a friendly application alias via registry, PATH, or Office standard directories."""
+        clean = name_or_path.strip().lower()
+        target = COMMON_APP_ALIASES.get(clean, clean)
+
+        # 1. Direct which on PATH
+        which_path = shutil.which(target) or shutil.which(clean) or shutil.which(f"{clean}.exe") or shutil.which(f"{clean}.cmd")
         if which_path:
             return which_path
 
-        return name_or_path
+        # 2. Windows App Paths registry lookup (Excel, Word, Chrome, Edge, etc.)
+        reg_path = self._query_registry_app_path(target) or self._query_registry_app_path(clean)
+        if reg_path:
+            return reg_path
+
+        # 3. Standard Program Files search for Office applications
+        if clean in ["excel", "excel.exe", "word", "winword", "winword.exe", "powerpoint", "powerpnt", "powerpnt.exe"]:
+            for drive in ["C:", "D:"]:
+                for base in [
+                    rf"{drive}\Program Files\Microsoft Office\root\Office16",
+                    rf"{drive}\Program Files (x86)\Microsoft Office\root\Office16",
+                    rf"{drive}\Program Files\Microsoft Office\Office16",
+                    rf"{drive}\Program Files (x86)\Microsoft Office\Office16",
+                    rf"{drive}\Program Files\Microsoft Office\Office15",
+                ]:
+                    cand = os.path.join(base, target if target.endswith(".exe") else f"{target}.exe")
+                    if os.path.exists(cand):
+                        return cand
+
+        # 4. Standard Chrome / Edge search
+        if clean in ["chrome", "google chrome"]:
+            for p in [
+                r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+                r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
+            ]:
+                if os.path.exists(p):
+                    return p
+
+        return target
 
     async def open_application(
         self,
@@ -103,16 +152,17 @@ class WindowManager:
         wait_seconds: float = 1.5
     ) -> Dict[str, Any]:
         """
-        Launches an application by friendly alias or path, and waits for its window to appear.
+        Launches an application by friendly alias, registry path, or Windows shell start.
         """
         executable = self.resolve_app_executable(name_or_path)
-        cmd = [executable] + (args or [])
+        proc = None
+        launched = False
+        last_err = None
 
-        try:
-            if executable.startswith("ms-settings:"):
-                os.startfile(executable)
-                proc = None
-            else:
+        # Method 1: Direct Popen if path exists
+        if os.path.isabs(executable) and os.path.exists(executable):
+            try:
+                cmd = [executable] + (args or [])
                 proc = subprocess.Popen(
                     cmd,
                     shell=False,
@@ -120,31 +170,75 @@ class WindowManager:
                     stderr=subprocess.DEVNULL,
                     creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
                 )
+                launched = True
+            except Exception as e:
+                last_err = e
 
-            if wait_seconds > 0:
-                await asyncio.sleep(wait_seconds)
+        # Method 2: os.startfile (Windows Shell Verb resolution)
+        if not launched and os.name == "nt":
+            try:
+                target_to_start = executable if os.path.exists(executable) else name_or_path
+                os.startfile(target_to_start)
+                launched = True
+            except Exception as e:
+                last_err = e
 
-            # Look for newly opened window
-            matched_win = None
-            clean_name = Path(name_or_path).stem.lower()
-            all_wins = self.list_windows()
-            for w in all_wins:
-                if clean_name in w.process_name.lower() or clean_name in w.title.lower():
-                    matched_win = w
-                    break
+        # Method 3: cmd.exe /c start "" "<target>"
+        if not launched and os.name == "nt":
+            try:
+                arg_str = " ".join(args) if args else ""
+                subprocess.Popen(
+                    f'cmd.exe /c start "" "{executable}" {arg_str}',
+                    shell=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+                launched = True
+            except Exception as e:
+                last_err = e
 
-            return {
-                "success": True,
-                "app_name": name_or_path,
-                "executable": executable,
-                "pid": proc.pid if proc else (matched_win.pid if matched_win else None),
-                "window": matched_win.__dict__ if matched_win else None,
-                "message": f"Launched '{name_or_path}' successfully"
-            }
+        # Method 4: Ultron Start Menu search fallback via keystrokes
+        if not launched:
+            try:
+                import pyautogui
+                pyautogui.press("win")
+                await asyncio.sleep(0.6)
+                pyautogui.write(name_or_path, interval=0.04)
+                await asyncio.sleep(0.8)
+                pyautogui.press("enter")
+                launched = True
+            except Exception as e:
+                last_err = e
 
-        except Exception as e:
-            logger.error("Failed to launch app '%s': %s", name_or_path, e)
-            return {"success": False, "app_name": name_or_path, "error": str(e)}
+        if not launched:
+            return {"success": False, "app_name": name_or_path, "error": str(last_err or "Unknown launch failure")}
+
+        if wait_seconds > 0:
+            await asyncio.sleep(wait_seconds)
+
+        # Match newly opened or existing window
+        matched_win = None
+        clean_name = Path(name_or_path).stem.lower()
+        all_wins = self.list_windows()
+        for w in all_wins:
+            if clean_name in w.process_name.lower() or clean_name in w.title.lower():
+                matched_win = w
+                break
+
+        if matched_win:
+            try:
+                self.focus_window(matched_win.hwnd)
+            except Exception:
+                pass
+
+        return {
+            "success": True,
+            "app_name": name_or_path,
+            "executable": executable,
+            "pid": proc.pid if proc else (matched_win.pid if matched_win else None),
+            "window": matched_win.__dict__ if matched_win else None,
+            "message": f"Launched '{name_or_path}' successfully"
+        }
 
     # -------------------------------------------------------------------------
     # 2. Window Enumeration & Search

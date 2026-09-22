@@ -9,15 +9,52 @@ from src.security.guard import ActionRiskLevel
 from src.security.snapshot import get_snapshot_manager
 
 def resolve_target_path(raw_path: str) -> Path:
-    p = os.path.expanduser(str(raw_path).strip())
+    clean_str = str(raw_path).strip().replace("\\", "/")
+    # Safe User Home redirection: if LLM mistakenly targets Administrator, redirect to actual user home
+    if clean_str.lower().startswith("c:/users/administrator"):
+        remainder = clean_str[len("c:/users/administrator"):].lstrip("/")
+        return (Path.home() / remainder).resolve()
+
+    p = os.path.expanduser(clean_str)
     p_lower = p.lower()
-    if p_lower.startswith("desktop/") or p_lower.startswith("desktop\\"):
+    if p_lower.startswith("desktop/"):
         return (Path.home() / "Desktop" / p[8:]).resolve()
-    elif p_lower.startswith("documents/") or p_lower.startswith("documents\\"):
+    elif p_lower.startswith("documents/"):
         return (Path.home() / "Documents" / p[10:]).resolve()
-    elif p_lower.startswith("downloads/") or p_lower.startswith("downloads\\"):
+    elif p_lower.startswith("downloads/"):
         return (Path.home() / "Downloads" / p[10:]).resolve()
     return Path(p).resolve()
+
+def format_size(size_bytes: int) -> str:
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    elif size_bytes < 1024 * 1024:
+        return f"{size_bytes / 1024:.1f} KB"
+    elif size_bytes < 1024 * 1024 * 1024:
+        return f"{size_bytes / (1024 * 1024):.1f} MB"
+    return f"{size_bytes / (1024 * 1024 * 1024):.2f} GB"
+
+def categorize_file(path: Path) -> str:
+    if path.is_dir():
+        return "directory"
+    ext = path.suffix.lower()
+    if ext in [".xlsx", ".xls", ".csv", ".tsv"]:
+        return "spreadsheet"
+    elif ext in [".docx", ".doc", ".pdf", ".txt", ".md", ".rtf"]:
+        return "document"
+    elif ext in [".pptx", ".ppt"]:
+        return "presentation"
+    elif ext in [".py", ".js", ".ts", ".html", ".css", ".json", ".xml", ".yaml", ".yml", ".c", ".cpp", ".rs", ".go"]:
+        return "code"
+    elif ext in [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg", ".ico"]:
+        return "image"
+    elif ext in [".zip", ".tar", ".gz", ".7z", ".rar"]:
+        return "archive"
+    elif ext in [".mp3", ".wav", ".flac", ".m4a"]:
+        return "audio"
+    elif ext in [".mp4", ".mov", ".avi", ".mkv"]:
+        return "video"
+    return "file"
 
 class ReadFileTool(BaseTool):
     name = "read_file"
@@ -44,15 +81,6 @@ class ReadFileTool(BaseTool):
         start_line = max(1, int(args.get("start_line", 1)))
 
         try:
-            # Prevent reading giant binary or log files (> 50MB) into memory
-            file_size = file_path.stat().st_size
-            if file_size > 50_000_000:
-                return ToolResult(
-                    success=False,
-                    data=None,
-                    error=f"File is too large ({round(file_size / (1024*1024), 2)}MB). Max supported file read size is 50MB."
-                )
-
             selected_lines = []
             total_lines = 0
             with open(file_path, "r", encoding="utf-8", errors="replace") as f:
@@ -86,7 +114,7 @@ class WriteFileTool(BaseTool):
         },
         "required": ["path", "content"]
     }
-    risk_level = ActionRiskLevel.MODERATE
+    risk_level = ActionRiskLevel.DESTRUCTIVE
 
     async def execute(self, args: Dict[str, Any], context: ToolContext) -> ToolResult:
         file_path = resolve_target_path(str(args.get("path")))
@@ -131,7 +159,7 @@ class MoveFileTool(BaseTool):
         },
         "required": ["source", "destination"]
     }
-    risk_level = ActionRiskLevel.MODERATE
+    risk_level = ActionRiskLevel.DESTRUCTIVE
 
     async def execute(self, args: Dict[str, Any], context: ToolContext) -> ToolResult:
         src = resolve_target_path(str(args.get("source")))
@@ -220,23 +248,44 @@ class ListDirectoryTool(BaseTool):
 
         max_items = int(args.get("max_items", 100))
         items = []
+        total_size = 0
+        file_count = 0
+        dir_count = 0
+
         try:
+            from datetime import datetime
             for entry in dir_path.iterdir():
                 if len(items) >= max_items:
                     break
-                stat = entry.stat()
-                items.append({
-                    "name": entry.name,
-                    "is_directory": entry.is_dir(),
-                    "size_bytes": stat.st_size if not entry.is_dir() else 0,
-                    "modified": stat.st_mtime
-                })
+                try:
+                    stat = entry.stat()
+                    is_dir = entry.is_dir()
+                    sz = stat.st_size if not is_dir else 0
+                    if not is_dir:
+                        total_size += sz
+                        file_count += 1
+                    else:
+                        dir_count += 1
+
+                    items.append({
+                        "name": entry.name,
+                        "is_directory": is_dir,
+                        "category": categorize_file(entry),
+                        "size_bytes": sz,
+                        "size_human": format_size(sz) if not is_dir else "--",
+                        "modified": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M")
+                    })
+                except Exception:
+                    pass
 
             return ToolResult(
                 success=True,
                 data={
                     "directory": str(dir_path),
                     "total_entries": len(items),
+                    "files_count": file_count,
+                    "directories_count": dir_count,
+                    "total_size_human": format_size(total_size),
                     "items": sorted(items, key=lambda x: (not x["is_directory"], x["name"].lower()))
                 }
             )
@@ -245,7 +294,7 @@ class ListDirectoryTool(BaseTool):
 
 class SearchFilesTool(BaseTool):
     name = "search_files"
-    description = "Search for files by name glob pattern or search for text content inside files in a directory."
+    description = "Search for files by name glob pattern or search for text content inside files in a directory with snippet previews."
     parameters = {
         "type": "object",
         "properties": {
@@ -268,28 +317,55 @@ class SearchFilesTool(BaseTool):
 
         matches = []
         try:
+            from datetime import datetime
             for root, _, files in os.walk(root_dir):
                 if len(matches) >= max_results:
                     break
-                if ".git" in root or "node_modules" in root or ".nim_jarvis" in root:
+                if ".git" in root or "node_modules" in root or ".nim_jarvis" in root or "__pycache__" in root:
                     continue
                 for f in files:
                     if len(matches) >= max_results:
                         break
                     if fnmatch.fnmatch(f, pattern):
                         full_path = Path(root) / f
-                        if query:
-                            try:
-                                # Skip reading massive files (> 10MB) to protect RAM
-                                if full_path.stat().st_size < 10_000_000:
+                        try:
+                            stat = full_path.stat()
+                            sz_human = format_size(stat.st_size)
+                            mod_str = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M")
+                            cat = categorize_file(full_path)
+
+                            if query:
+                                # Check file size < 5MB for text search
+                                if stat.st_size < 5_000_000:
+                                    matching_snippets = []
                                     with open(full_path, "r", encoding="utf-8", errors="ignore") as file_obj:
-                                        content = file_obj.read()
-                                        if query.lower() in content.lower():
-                                            matches.append({"path": str(full_path), "matched_query": True})
-                            except Exception:
-                                pass
-                        else:
-                            matches.append({"path": str(full_path)})
+                                        for line_num, line in enumerate(file_obj, start=1):
+                                            if query.lower() in line.lower():
+                                                matching_snippets.append({
+                                                    "line": line_num,
+                                                    "content": line.strip()[:160]
+                                                })
+                                                if len(matching_snippets) >= 3:
+                                                    break
+                                    if matching_snippets:
+                                        matches.append({
+                                            "path": str(full_path),
+                                            "name": f,
+                                            "category": cat,
+                                            "size": sz_human,
+                                            "modified": mod_str,
+                                            "snippets": matching_snippets
+                                        })
+                            else:
+                                matches.append({
+                                    "path": str(full_path),
+                                    "name": f,
+                                    "category": cat,
+                                    "size": sz_human,
+                                    "modified": mod_str
+                                })
+                        except Exception:
+                            pass
 
             return ToolResult(success=True, data={"directory": str(root_dir), "matches": matches, "count": len(matches)})
         except Exception as e:

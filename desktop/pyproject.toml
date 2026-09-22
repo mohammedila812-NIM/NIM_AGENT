@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nim-jarvis-desktop"
-version = "1.2.0"
+version = "1.1.0"
 description = "JARVIS Desktop AI Automation System - Native OS Partner for NIM Agent"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -31,13 +31,9 @@ dependencies = [
     "soundfile>=0.12",
     "SpeechRecognition>=3.10",
     "webrtcvad>=2.0.10",
-    "silero-vad>=0.1",
-    "faster-whisper>=1.0",
-    "torch>=2.0",
     "pyaudio>=0.2.14; sys_platform == 'win32'",
     "pywin32>=306; sys_platform == 'win32'"
 ]
-
 
 [project.scripts]
 nim-jarvis = "src.main:main"
@@ -46,10 +42,4 @@ nim-jarvis = "src.main:main"
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["."]
-filterwarnings = [
-    "ignore::DeprecationWarning:speech_recognition.*",
-    "ignore::DeprecationWarning:pygame.*",
-    "ignore::DeprecationWarning:pkg_resources.*",
-    "ignore::DeprecationWarning:google.*",
-    "ignore::DeprecationWarning:mpl_toolkits.*"
-]
+

@@ -68,23 +68,18 @@ class NotifyUserTool(BaseTool):
         message = str(args.get("message", ""))
         try:
             if platform.system() == "Windows":
-                import base64
+                # Safely escape single quotes for PowerShell literal string encapsulation
+                escaped_title = title.replace("'", "''").replace("`", "``").replace("$", "`$")
+                escaped_msg = message.replace("'", "''").replace("`", "``").replace("$", "`$")
                 import subprocess
-                b64_title = base64.b64encode(title.encode("utf-8")).decode("ascii")
-                b64_msg = base64.b64encode(message.encode("utf-8")).decode("ascii")
                 ps_script = f"""
                 [reflection.assembly]::loadwithpartialname('System.Windows.Forms') | Out-Null
                 $notify = new-object system.windows.forms.notifyicon
                 $notify.icon = [system.drawing.systemicons]::Information
                 $notify.visible = $true
-                $t = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('{b64_title}'))
-                $m = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('{b64_msg}'))
-                $notify.showballoontip(5000, $t, $m, [system.windows.forms.tooltipicon]::Info)
+                $notify.showballoontip(5000, '{escaped_title}', '{escaped_msg}', [system.windows.forms.tooltipicon]::Info)
                 """
-                subprocess.Popen(
-                    ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_script],
-                    creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0
-                )
+                subprocess.Popen(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_script], creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0)
 
             return ToolResult(success=True, data={"notified": True, "title": title, "message": message})
         except Exception as e:
@@ -92,14 +87,62 @@ class NotifyUserTool(BaseTool):
 
 class GetSystemInfoTool(BaseTool):
     name = "get_system_info"
-    description = "Retrieve system hardware and OS status (CPU load, RAM usage, disk space)."
+    description = "Retrieve comprehensive system hardware and OS status (CPU, RAM, partitions, battery, top processes, and GPU)."
     parameters = {"type": "object", "properties": {}}
     risk_level = ActionRiskLevel.SAFE
 
     async def execute(self, args: Dict[str, Any], context: ToolContext) -> ToolResult:
         try:
             mem = psutil.virtual_memory()
-            disk = psutil.disk_usage(os.path.abspath("."))
+            partitions_info = []
+            for part in psutil.disk_partitions(all=False):
+                try:
+                    usage = psutil.disk_usage(part.mountpoint)
+                    partitions_info.append({
+                        "device": part.device,
+                        "mountpoint": part.mountpoint,
+                        "fstype": part.fstype,
+                        "total_gb": round(usage.total / (1024**3), 1),
+                        "free_gb": round(usage.free / (1024**3), 1),
+                        "used_percent": usage.percent
+                    })
+                except Exception:
+                    pass
+
+            # Battery status
+            battery = psutil.sensors_battery()
+            battery_info = None
+            if battery:
+                battery_info = {
+                    "percent": battery.percent,
+                    "power_plugged": battery.power_plugged,
+                    "secs_left": battery.secsleft if battery.secsleft != psutil.POWER_TIME_UNLIMITED else "unlimited"
+                }
+
+            # Top 3 processes by memory and CPU
+            top_procs = []
+            try:
+                for proc in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent']):
+                    try:
+                        pinfo = proc.info
+                        if pinfo['name'] and pinfo['memory_percent']:
+                            top_procs.append(pinfo)
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        pass
+                top_procs = sorted(top_procs, key=lambda x: x['memory_percent'] or 0, reverse=True)[:4]
+            except Exception:
+                pass
+
+            # GPU Check
+            gpu_detected = None
+            try:
+                import subprocess
+                res = subprocess.run(["nvidia-smi", "--query-gpu=name,memory.total,utilization.gpu", "--format=csv,noheader"], capture_output=True, text=True, timeout=2)
+                if res.returncode == 0 and res.stdout.strip():
+                    gpu_detected = res.stdout.strip().splitlines()[0]
+            except Exception:
+                pass
+
             return ToolResult(
                 success=True,
                 data={
@@ -109,9 +152,13 @@ class GetSystemInfoTool(BaseTool):
                     "ram_total_gb": round(mem.total / (1024**3), 2),
                     "ram_available_gb": round(mem.available / (1024**3), 2),
                     "ram_used_percent": mem.percent,
-                    "disk_total_gb": round(disk.total / (1024**3), 2),
-                    "disk_free_gb": round(disk.free / (1024**3), 2),
-                    "disk_used_percent": disk.percent
+                    "partitions": partitions_info,
+                    "battery": battery_info,
+                    "gpu": gpu_detected or "Standard display adapter",
+                    "top_memory_processes": [
+                        {"name": p["name"], "pid": p["pid"], "ram_pct": round(p["memory_percent"], 1)}
+                        for p in top_procs
+                    ]
                 }
             )
         except Exception as e:

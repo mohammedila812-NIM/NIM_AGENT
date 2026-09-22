@@ -212,34 +212,18 @@ class ClipboardListener:
         logger.info("Clipboard intelligence listener stopped.")
 
     def _get_current_clipboard(self) -> Optional[str]:
-        """Reads current clipboard text safely without blocking thread pumps."""
+        """Reads current clipboard text safely."""
         try:
-            import pyperclip
-            return pyperclip.paste()
-        except Exception:
-            pass
-
-        try:
-            import ctypes
-            from ctypes import wintypes
-            CF_UNICODETEXT = 13
-            user32 = ctypes.windll.user32
-            kernel32 = ctypes.windll.kernel32
-            if not user32.OpenClipboard(None):
-                return None
+            import tkinter as tk
+            root = tk.Tk()
+            root.withdraw()
             try:
-                handle = user32.GetClipboardData(CF_UNICODETEXT)
-                if not handle:
-                    return None
-                data_ptr = kernel32.GlobalLock(handle)
-                if not data_ptr:
-                    return None
-                try:
-                    return ctypes.c_wchar_p(data_ptr).value
-                finally:
-                    kernel32.GlobalUnlock(handle)
+                content = root.clipboard_get()
+            except Exception:
+                content = None
             finally:
-                user32.CloseClipboard()
+                root.destroy()
+            return content
         except Exception:
             return None
 

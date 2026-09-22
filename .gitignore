@@ -1,41 +1,80 @@
-# Dependencies
-node_modules/
-
-# WXT build and development output
-.output/
-.wxt/
-
-
-# Test artefacts
-coverage/
-playwright-report/
-test-results/
-
-# Python & Desktop artefacts
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
-.pytest_cache/
-.venv/
-venv/
-*.sqlite
-*.sqlite3
-*.db
-desktop/*.db
-desktop/dist/
-desktop/build/
-dist_installer/
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyInstaller
+*.manifest
 *.spec
-*.zip
 
-# Local configuration and secrets
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Environments
 .env
-.env.local
-.env.*.local
-!.env.example
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
 
-# Local notes and operating-system files
-bug.txt
-*.log
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
 .DS_Store
 Thumbs.db
+desktop.ini
+
+# App runtime & snapshots
+.nim_jarvis/
+.test_nim_jarvis/
+snapshots/
+*.log
+
+# Web extension build artifacts & node
+node_modules/
+.output/
+.wxt/
+.aider*
+scratch_*.py

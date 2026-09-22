@@ -20,10 +20,23 @@ from src.security.redaction import SensitiveDataRedactor
 
 logger = logging.getLogger(__name__)
 
+_GLOBAL_HTTP_CLIENT: Optional[httpx.AsyncClient] = None
+
+def get_shared_http_client(timeout: float = 60.0) -> httpx.AsyncClient:
+    global _GLOBAL_HTTP_CLIENT
+    if _GLOBAL_HTTP_CLIENT is None or _GLOBAL_HTTP_CLIENT.is_closed:
+        limits = httpx.Limits(max_keepalive_connections=20, max_connections=50, keepalive_expiry=30.0)
+        _GLOBAL_HTTP_CLIENT = httpx.AsyncClient(
+            timeout=timeout,
+            limits=limits,
+            http2=True
+        )
+    return _GLOBAL_HTTP_CLIENT
+
 class LLMClient:
     """
     Unified Async LLM Client supporting OpenAI-compatible endpoints (NVIDIA NIM, Groq, Gemini, Local).
-    Implements streaming SSE, robust retry policies, and structured tool parsing.
+    Implements persistent HTTP/2 connection pooling, streaming SSE, and robust retry policies.
     """
 
     def __init__(
@@ -43,6 +56,32 @@ class LLMClient:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
         }
+
+    @staticmethod
+    def _temperature_adjustment_from_error(err_text: str) -> Optional[Dict[str, Any]]:
+        lower = err_text.lower()
+        if "temperature" not in lower:
+            return None
+
+        range_match = re.search(
+            r"supported\s+values\s+are\s+between\s+([-+]?\d+(?:\.\d+)?)\s+and\s+([-+]?\d+(?:\.\d+)?)",
+            lower
+        )
+        if range_match:
+            min_value = float(range_match.group(1))
+            max_value = float(range_match.group(2))
+            if min_value == max_value:
+                return {"action": "set", "value": min_value}
+            return {"action": "set", "value": max(min_value, min(max_value, 0.2))}
+
+        value_match = re.search(r"(?:only|supported)\s+(?:value|values).*?([-+]?\d+(?:\.\d+)?)", lower)
+        if value_match:
+            return {"action": "set", "value": float(value_match.group(1))}
+
+        if "not supported" in lower or "unsupported_parameter" in lower:
+            return {"action": "omit"}
+
+        return None
 
     async def stream_chat(
         self,
@@ -65,53 +104,63 @@ class LLMClient:
         payload: Dict[str, Any] = {
             "model": request.model,
             "messages": sanitized_messages,
-            "temperature": request.temperature,
             "max_tokens": request.max_tokens,
             "stream": True,
             "stream_options": {"include_usage": True}
         }
+        if request.temperature is not None:
+            payload["temperature"] = request.temperature
         if request.tools:
-            payload["tools"] = []
-            for t in request.tools:
-                if isinstance(t, ToolDefinition):
-                    payload["tools"].append({
-                        "type": "function",
-                        "function": {
-                            "name": t.function.get("name"),
-                            "description": t.function.get("description", ""),
-                            "parameters": t.function.get("parameters", {})
-                        }
-                    })
-                elif isinstance(t, dict):
-                    if "function" in t and isinstance(t["function"], dict):
-                        payload["tools"].append(t)
-                    else:
-                        payload["tools"].append({
-                            "type": "function",
-                            "function": {
-                                "name": t.get("name"),
-                                "description": t.get("description", ""),
-                                "parameters": t.get("parameters", {})
-                            }
-                        })
+            payload["tools"] = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": t.function.get("name"),
+                        "description": t.function.get("description", ""),
+                        "parameters": t.function.get("parameters", {})
+                    }
+                }
+                for t in request.tools
+            ]
             if request.tool_choice:
                 payload["tool_choice"] = request.tool_choice
 
         # Execute request with retry loop
         last_error = None
+        adaptive_retries = set()
+        client = get_shared_http_client(self.timeout)
         for attempt in range(self.max_retries + 1):
             try:
-                async with httpx.AsyncClient(timeout=self.timeout) as client:
-                    async with client.stream(
-                        "POST",
-                        url,
-                        headers=self._get_headers(),
-                        json=payload
-                    ) as response:
+                async with client.stream(
+                    "POST",
+                    url,
+                    headers=self._get_headers(),
+                    json=payload
+                ) as response:
                         if response.status_code != 200:
                             err_body = await response.aread()
-                            err_text = err_body.decode('utf-8', errors='ignore')
                             err_msg = f"HTTP {response.status_code}: {err_text}"
+                            if response.status_code in [404, 410]:
+                                err_msg += f"\n[Diagnostic]: The requested model '{request.model}' is retired or unavailable. For NVIDIA NIM, use 'meta/llama-3.2-11b-vision-instruct'."
+
+                            if response.status_code == 400:
+                                adjustment = self._temperature_adjustment_from_error(err_text)
+                                if adjustment and "temperature" in payload:
+                                    if adjustment["action"] == "omit":
+                                        retry_key = "temperature:omit"
+                                        if retry_key not in adaptive_retries:
+                                            payload.pop("temperature", None)
+                                            adaptive_retries.add(retry_key)
+                                            logger.info("Retrying chat completion without temperature after provider rejected it.")
+                                            continue
+                                    elif adjustment["action"] == "set":
+                                        value = adjustment["value"]
+                                        retry_key = f"temperature:{value}"
+                                        if payload.get("temperature") != value and retry_key not in adaptive_retries:
+                                            payload["temperature"] = value
+                                            adaptive_retries.add(retry_key)
+                                            logger.info("Retrying chat completion with provider-supported temperature=%s.", value)
+                                            continue
                             
                             # Handle rate limits (429) and transient server errors
                             if response.status_code in [429, 500, 502, 503, 504] and attempt < self.max_retries:
@@ -219,17 +268,13 @@ class LLMClient:
                                         "id": td_id or f"call_{target_idx}_{uuid.uuid4().hex[:8]}",
                                         "name": "",
                                         "arguments": "",
-                                        "extra_content": td.get("extra_content"),
-                                        "thought_signature": td.get("thought_signature") or td.get("thoughtSignature") or func_delta.get("thought_signature") or func_delta.get("thoughtSignature")
+                                        "extra_content": td.get("extra_content")
                                     }
 
                                 if td_id:
                                     tool_call_accumulator[target_idx]["id"] = td_id
                                 if td.get("extra_content"):
                                     tool_call_accumulator[target_idx]["extra_content"] = td["extra_content"]
-                                sig_delta = td.get("thought_signature") or td.get("thoughtSignature") or func_delta.get("thought_signature") or func_delta.get("thoughtSignature")
-                                if sig_delta:
-                                    tool_call_accumulator[target_idx]["thought_signature"] = sig_delta
 
                                 if name_delta:
                                     if not tool_call_accumulator[target_idx]["name"]:
@@ -246,20 +291,10 @@ class LLMClient:
                         final_tool_calls: List[ToolCall] = []
                         for idx, tc_data in sorted(tool_call_accumulator.items()):
                             if tc_data["name"]:
-                                extra_cnt = tc_data.get("extra_content")
-                                sig = tc_data.get("thought_signature")
-                                if not sig and isinstance(extra_cnt, dict):
-                                    sig = (
-                                        extra_cnt.get("google", {}).get("thought_signature")
-                                        or extra_cnt.get("google", {}).get("thoughtSignature")
-                                        or extra_cnt.get("thought_signature")
-                                        or extra_cnt.get("thoughtSignature")
-                                    )
                                 tc = ToolCall(
                                     id=tc_data["id"],
                                     function={"name": tc_data["name"], "arguments": tc_data["arguments"]},
-                                    extra_content=extra_cnt,
-                                    thought_signature=sig
+                                    extra_content=tc_data.get("extra_content")
                                 )
                                 final_tool_calls.append(tc)
                                 yield StreamEvent(event_type="tool_call", data=tc)
@@ -309,113 +344,3 @@ class LLMClient:
                 continue
 
         return recovered
-
-    async def generate(
-        self,
-        messages: List[Dict[str, Any]],
-        system: str = "",
-        tools: Optional[List[ToolDefinition]] = None,
-        max_tokens: int = 4096,
-        model: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """
-        Non-streaming chat generation method for subagents and background workers.
-        Returns a dict: {"content": str, "tool_calls": List[dict], "usage": dict}
-        """
-        chat_messages = []
-        if system:
-            chat_messages.append(ChatMessage(role="system", content=system))
-
-        for m in messages:
-            role = m.get("role", "user")
-            content = m.get("content")
-            tc_list = m.get("tool_calls")
-            tc_objs = None
-            if tc_list:
-                tc_objs = []
-                for tc in tc_list:
-                    if isinstance(tc, ToolCall):
-                        tc_objs.append(tc)
-                    elif isinstance(tc, dict):
-                        sig = tc.get("thought_signature") or tc.get("thoughtSignature")
-                        extra = tc.get("extra_content")
-                        if not sig and isinstance(extra, dict):
-                            sig = (
-                                extra.get("google", {}).get("thought_signature")
-                                or extra.get("google", {}).get("thoughtSignature")
-                                or extra.get("thought_signature")
-                                or extra.get("thoughtSignature")
-                            )
-                        tc_objs.append(ToolCall(
-                            id=tc.get("id", f"call_{uuid.uuid4().hex[:8]}"),
-                            function=tc.get("function", {"name": tc.get("name", ""), "arguments": tc.get("arguments", {})}),
-                            extra_content=extra,
-                            thought_signature=sig
-                        ))
-            chat_messages.append(ChatMessage(
-                role=role,
-                content=content,
-                reasoning_content=m.get("reasoning_content"),
-                tool_calls=tc_objs,
-                tool_call_id=m.get("tool_call_id"),
-                name=m.get("name")
-            ))
-
-        # Default model if not explicitly specified
-        active_model = model or "default"
-        try:
-            from src.config import AgentConfig
-            active_model = model or AgentConfig().model
-        except Exception:
-            pass
-
-        req = ChatCompletionRequest(
-            model=active_model,
-            messages=chat_messages,
-            tools=tools,
-            temperature=0.2,
-            max_tokens=max_tokens,
-            stream=True
-        )
-
-        accumulated_content = ""
-        accumulated_reasoning = ""
-        accumulated_tool_calls: List[ToolCall] = []
-        usage: Dict[str, Any] = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-
-        async for ev in self.stream_chat(req):
-            if ev.event_type == "content":
-                accumulated_content += ev.data
-            elif ev.event_type == "reasoning":
-                accumulated_reasoning += ev.data
-            elif ev.event_type == "tool_call":
-                accumulated_tool_calls.append(ev.data)
-            elif ev.event_type == "usage":
-                usage = ev.data
-            elif ev.event_type == "done" and isinstance(ev.data, dict):
-                accumulated_content = ev.data.get("content", accumulated_content)
-                accumulated_tool_calls = ev.data.get("tool_calls", accumulated_tool_calls)
-                usage = ev.data.get("usage", usage)
-            elif ev.event_type == "error":
-                raise RuntimeError(str(ev.data))
-
-        formatted_tool_calls = []
-        for tc in accumulated_tool_calls:
-            item = {
-                "id": tc.id,
-                "name": tc.function.get("name", "") if isinstance(tc.function, dict) else getattr(tc, "name", ""),
-                "arguments": tc.function.get("arguments", {}) if isinstance(tc.function, dict) else getattr(tc, "arguments", {})
-            }
-            if getattr(tc, "thought_signature", None):
-                item["thought_signature"] = tc.thought_signature
-                item["thoughtSignature"] = tc.thought_signature
-            if getattr(tc, "extra_content", None):
-                item["extra_content"] = tc.extra_content
-            formatted_tool_calls.append(item)
-
-        return {
-            "content": accumulated_content,
-            "reasoning": accumulated_reasoning,
-            "tool_calls": formatted_tool_calls,
-            "usage": usage
-        }

@@ -42,6 +42,13 @@ class ScreenCaptureEngine:
 
     def capture_full_screen(self, monitor_index: int = 1) -> Image.Image:
         """Captures the full display monitor (default: primary monitor 1)."""
+        if monitor_index == 1:
+            try:
+                from src.perception.dxgi_capture import get_dxgi_capture
+                return get_dxgi_capture().capture_fullscreen()
+            except Exception:
+                pass
+
         with mss.mss() as sct:
             monitors = sct.monitors
             idx = min(monitor_index, len(monitors) - 1)

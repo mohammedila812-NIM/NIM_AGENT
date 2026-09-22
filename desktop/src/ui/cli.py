@@ -1,502 +1,474 @@
+"""
+NIM AGENT — Authentic Kilo CLI Terminal Interface
+Replicates the visual identity of Kilo CLI / OpenCode:
+- Pixel ASCII Banner in Gold (#e5c07b)
+- Solid Accent Card with vertical left indicator (▌)
+- Clean prompt line with dim ghost placeholder
+- Dynamic autocomplete for slash commands
+- Streamed execution cards with latency & token cost
+- /gui command with verified subprocess background launcher
+- /skills, /reset, /sys, /undo commands
+"""
+
 import asyncio
+import os
+import subprocess
 import sys
-import threading
+import time
+from pathlib import Path
 from typing import Any, Optional
+
+from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import WordCompleter
+from prompt_toolkit.formatted_text import FormattedText
+from prompt_toolkit.history import InMemoryHistory
+from prompt_toolkit.styles import Style
+
+from rich.align import Align
 from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
 from rich.markdown import Markdown
-from rich.prompt import Prompt
+from rich.panel import Panel
+from rich.rule import Rule
+from rich.table import Table
+from rich.text import Text
 from rich.theme import Theme
+from rich.prompt import Prompt
 
 from src.agent.loop import AgentOrchestrator
 from src.bridge.server import get_bridge_server
-from src.config import AgentConfig
-from src.llm.providers import PROVIDER_PRESETS
+from src.llm.providers import PROVIDER_PRESETS, get_provider_preset
 from src.security.secrets import get_secret_store
 from src.security.snapshot import get_snapshot_manager
 from src.tools.registry import get_tool_registry
+from src.skills.manager import get_skill_manager
 
-custom_theme = Theme({
-    "info": "cyan",
-    "warning": "yellow",
-    "danger": "bold red",
-    "success": "bold green",
-    "reasoning": "dim italic cyan",
-    "tool": "bold magenta"
+VERSION = "1.1.0"
+
+# ─────────────────────── Theme & Colours ─────────────────────────────────────
+YELLOW  = "#e5c07b"
+DIM_YEL = "#8a7040"
+GREEN   = "#98c379"
+RED     = "#e06c75"
+CYAN    = "#61afef"
+PURPLE  = "#c678dd"
+GREY    = "#5c6370"
+WHITE   = "#abb2bf"
+
+nim_theme = Theme({
+    "info":       CYAN,
+    "warning":    YELLOW,
+    "danger":     f"bold {RED}",
+    "success":    f"bold {GREEN}",
+    "reasoning":  f"dim italic {CYAN}",
+    "tool":       f"bold {PURPLE}",
 })
 
-console = Console(theme=custom_theme)
+console = Console(theme=nim_theme)
+
+pt_style = Style.from_dict({
+    "prompt":      "#61afef bold",
+    "placeholder": "#5c6370 italic",
+    "text":        "#abb2bf",
+})
+
+SLASH_COMMANDS = [
+    "/gui", "/skills", "/reset", "/new", "/help", "/clear", "/exit",
+    "/key", "/provider", "/model", "/keys", "/tools", "/sys", "/log",
+    "/undo", "/bridge"
+]
+
+completer = WordCompleter(SLASH_COMMANDS, ignore_case=True)
+history = InMemoryHistory()
+
+# ─────────────────────── Pixel Banner ────────────────────────────────────────
+_BANNER = [
+    r"███╗   ██╗██╗███╗   ███╗     █████╗  ██████╗ ███████╗███╗   ██╗████████╗",
+    r"████╗  ██║██║████╗ ████║    ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝",
+    r"██╔██╗ ██║██║██╔████╔██║    ███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║   ",
+    r"██║╚██╗██║██║██║╚██╔╝██║    ██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║   ",
+    r"██║ ╚████║██║██║ ╚═╝ ██║    ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║   ",
+    r"╚═╝  ╚═══╝╚═╝╚═╝     ╚═╝    ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝   ",
+]
+
+
+def _render_banner() -> Text:
+    t = Text(justify="center")
+    for i, line in enumerate(_BANNER):
+        t.append(line + "\n", style=f"bold {YELLOW}" if i < 5 else DIM_YEL)
+    return t
+
+
+def _render_kilo_card(provider: str, model: str, state: str = "idle") -> Panel:
+    """Exact recreation of the Kilo CLI accent card."""
+    w = min(80, (console.width or 80) - 2)
+    tbl = Table(box=None, padding=(0, 1), show_header=False, width=w)
+    tbl.add_column(style=f"bold {WHITE}", width=2)
+    tbl.add_column()
+    tbl.add_row("▌", Text('Ask anything... "open excel and summarize Q3"', style=f"bold {WHITE}"))
+    tbl.add_row("▌", Text(f"Desktop  ·  {provider}: {model}  ·  {state}", style=GREY))
+    return Panel(tbl, style="on #16181d", border_style="#2a303c", padding=(0, 1))
+
+
+def _splash(provider: str, model: str) -> None:
+    console.print()
+    console.print(Align(_render_banner(), align="center"))
+    console.print()
+    console.print(Align(_render_kilo_card(provider, model), align="center"))
+    console.print()
+    pairs = [("ctrl+c", "cancel"), ("esc", "stop"), ("/gui", "holographic GUI"), ("/skills", "skills"), ("/help", "commands")]
+    ht = Text(justify="center")
+    for i, (k, v) in enumerate(pairs):
+        if i:
+            ht.append("   ")
+        ht.append(k, style=f"bold {WHITE}")
+        ht.append(f" {v}", style=GREY)
+    console.print(Align(ht, align="center"))
+    console.print()
+    console.print(Align(_bullet("Tip", "Type a goal or press Tab for commands. /help for all actions."), align="center"))
+    console.print()
+
+
+def _bullet(label: str, body: str, color: str = "#e5c07b") -> Text:
+    t = Text()
+    t.append("● ", style=f"bold {color}")
+    t.append(label + " ", style=f"bold {color}")
+    t.append(body, style=WHITE)
+    return t
+
+
+def _tool_start_card(step_n: int, tn: str, args: dict) -> None:
+    a = str(args)
+    a = a[:120] + "..." if len(a) > 120 else a
+    t = Text()
+    t.append(f"● [Step {step_n}] ", style=f"bold {YELLOW}")
+    t.append(tn, style=f"bold {PURPLE}")
+    t.append(f"  {a}", style=f"dim {WHITE}")
+    console.print(t)
+
+
+def _tool_result_card(tn: str, ok: bool, preview: str, ms: float) -> None:
+    ic = "✓" if ok else "✗"
+    cc = GREEN if ok else RED
+    t = Text()
+    t.append(f"  {ic} ", style=f"bold {cc}")
+    t.append(tn, style=cc)
+    t.append(f"  {ms:.0f}ms", style=f"dim {GREY}")
+    t.append("\n    -> ", style=GREY)
+    t.append(preview[:220], style=f"dim {WHITE}")
+    console.print(t)
+
+
+def _task_done_card(answer: str, tokens: int, cost: float, lat: float, artifacts: list) -> None:
+    console.print()
+    console.print(Rule(style=YELLOW))
+    console.print(Markdown(answer or "Task completed."))
+    console.print(Rule(style=YELLOW))
+    tbl = Table(box=None, show_header=False, padding=(0, 2))
+    tbl.add_column(style=GREY)
+    tbl.add_column(style=WHITE)
+    tbl.add_row("Tokens", str(tokens))
+    tbl.add_row("Cost",   f"${cost:.4f}")
+    tbl.add_row("Time",   f"{lat:.2f}s")
+    if artifacts:
+        tbl.add_row("Artifacts", ", ".join(os.path.basename(a) for a in artifacts))
+    console.print(tbl)
+    console.print()
+
+
+def _approval_panel(tool_name: str, tool_args: dict, risk: str) -> None:
+    rc = RED if risk in ("CRITICAL", "DESTRUCTIVE") else YELLOW
+    lines = Text()
+    lines.append("  Tool   ", style=GREY)
+    lines.append(f"{tool_name}\n", style=f"bold {YELLOW}")
+    lines.append("  Risk   ", style=GREY)
+    lines.append(f"{risk}\n", style=f"bold {rc}")
+    lines.append("  Args   ", style=GREY)
+    ap = str(tool_args)
+    lines.append((ap[:200] + "..." if len(ap) > 200 else ap) + "\n", style=WHITE)
+    lines.append("\n")
+    lines.append("  [y] ", style=f"bold {GREEN}")
+    lines.append("Approve once   ", style=WHITE)
+    lines.append("[a] ", style=f"bold {YELLOW}")
+    lines.append("Always in task   ", style=WHITE)
+    lines.append("[n] ", style=f"bold {RED}")
+    lines.append("Deny and pivot", style=WHITE)
+    console.print(Panel(lines, title=" ACTION REQUIRES OPERATOR APPROVAL", border_style=rc, padding=(0, 2)))
+
+
+async def _ask_approval(tool_name: str, tool_args: dict, risk: str = "DESTRUCTIVE") -> str:
+    _approval_panel(tool_name, tool_args, risk)
+    raw = await asyncio.to_thread(
+        Prompt.ask, "  Decision", choices=["y", "a", "n"], default="n"
+    )
+    return raw.lower()
+
+
+def _cmd_skills() -> None:
+    mgr = get_skill_manager()
+    mgr.reload_skills()
+    skills = mgr.list_skills()
+    tbl = Table(title="Loaded Skills (Extensible Capabilities)", border_style=YELLOW)
+    tbl.add_column("Skill", style=f"bold {CYAN}", no_wrap=True)
+    tbl.add_column("Description", style=WHITE)
+    tbl.add_column("Triggers", style=GREEN)
+    tbl.add_column("Scripts", style=PURPLE)
+    for s in skills:
+        tbl.add_row(
+            s["name"],
+            s["description"],
+            ", ".join(s["triggers"]) if s["triggers"] else "all",
+            ", ".join(s["scripts"]) if s["scripts"] else "none"
+        )
+    console.print(tbl)
+    console.print(Text("  To create a skill, add a folder with SKILL.md in desktop/skills/", style=f"dim {GREY}"))
+
+
+def _cmd_sys() -> None:
+    try:
+        import psutil
+        cpu  = psutil.cpu_percent(interval=0.3)
+        ram  = psutil.virtual_memory()
+        disk = psutil.disk_usage("/")
+        tbl = Table(title="System Telemetry (User Space)", border_style=YELLOW, show_header=False)
+        tbl.add_column(style=f"bold {CYAN}", no_wrap=True)
+        tbl.add_column(style=WHITE)
+        tbl.add_row("User",     os.environ.get("USERNAME", "user"))
+        tbl.add_row("CPU Load", f"{cpu:.1f}%")
+        tbl.add_row("RAM",      f"{ram.used/1e9:.1f} / {ram.total/1e9:.1f} GB ({ram.percent:.0f}%)")
+        tbl.add_row("Disk",     f"{disk.used/1e9:.1f} / {disk.total/1e9:.1f} GB ({disk.percent:.0f}%)")
+        console.print(tbl)
+    except Exception as e:
+        console.print(Text(f"Telemetry error: {e}", style=RED))
+
 
 async def run_cli():
-    secret_store = get_secret_store()
+    secret_store  = get_secret_store()
     bridge_server = get_bridge_server()
-    orchestrator = AgentOrchestrator()
-    snapshot_mgr = get_snapshot_manager()
+    orchestrator  = AgentOrchestrator()
+    snapshot_mgr  = get_snapshot_manager()
     tool_registry = get_tool_registry()
 
-    # Start WebSocket Bridge in background
     try:
         await bridge_server.start()
-    except Exception as e:
-        console.print(f"[warning]Warning: Could not start Bridge Server on default port: {e}[/warning]")
-
-    console.print(Panel.fit(
-        "[bold cyan]⚡ NIM JARVIS Desktop v1.2.0 — Autonomous OS AI Partner[/bold cyan]\n"
-        "[dim]Holographic GUI • Subagent Swarms • Accent-Tolerant Voice v3 • DPI Screen Grounding[/dim]\n\n"
-        "Commands:\n"
-        "  • Type any goal/task to execute (e.g. 'Spawn subagents to analyze the project codebase')\n"
-        "  • [yellow]/gui[/yellow] — Launch the Holographic Cyberpunk Command Interface (Alt+Space to toggle)\n"
-        "  • [yellow]/mic on|off|status[/yellow] — Toggle ambient neural listening with true barge-in\n"
-        "  • [yellow]/accent <indian|british|american|australian|global>[/yellow] — Set speech accent conditioning profile\n"
-        "  • [yellow]/key <provider> <apikey>[/yellow] — Save API key in secure OS Credential Store (e.g. /key gemini AIza...)\n"
-        "  • [yellow]/provider <provider_id>[/yellow] — Switch active brain provider (e.g. /provider gemini, /provider nim-cloud)\n"
-        "  • [yellow]/model <model_name>[/yellow] — Switch active model (e.g. /model models/gemini-flash-lite-latest)\n"
-        "  • [yellow]/vision_provider <provider_id> <model>[/yellow] — Set dedicated vision LLM\n"
-        "  • [yellow]/vision_status[/yellow] — Show current vision & perception configuration\n"
-        "  • [yellow]/voice <text>[/yellow] — Speak text aloud in natural neural voice\n"
-        "  • [yellow]/keys[/yellow] — List configured provider keys & active brain model\n"
-        "  • [yellow]/undo[/yellow] — Revert last file modification/deletion\n"
-        "  • [yellow]/bridge[/yellow] — View WebSocket browser bridge status & pairing token\n"
-        "  • [yellow]/tools[/yellow] — View registered tools (vision, subagents, coords, OS, documents)\n"
-        "  • [yellow]/exit[/yellow] — Quit",
-        title="🤖 NIM JARVIS v1.2.0",
-        border_style="cyan"
-    ))
-
-    # ── HITL Confirmation Gate ────────────────────────────────────────────────
-    # Holds the pending confirmation state so the main input loop can route
-    # a typed 'y' or 'n' directly to the waiting tool-approval callback instead
-    # of spawning a new agent task.
-    _hitl_pending: dict = {}   # keys: "event" (threading.Event), "answer" (str)
-
-    async def cli_hitl_callback(tool_name: str, tool_args: dict) -> bool:
-        console.print(f"\n[danger]⚠️ ACTION REQUIRES CONFIRMATION:[/danger] Tool '[bold]{tool_name}[/bold]'")
-        console.print(f"Arguments: {tool_args}")
-        console.print("[bold yellow]Approve execution? \\[y/n] (default: n):[/bold yellow] ", end="")
-
-        # Register a blocking gate on the main input loop
-        gate = threading.Event()
-        _hitl_pending["event"] = gate
-        _hitl_pending["answer"] = "n"   # default: deny
-
-        # Wait (non-blocking for asyncio) until the main loop resolves the gate
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, gate.wait, 30.0)   # 30s timeout → auto-deny
-
-        answer = _hitl_pending.pop("answer", "n")
-        _hitl_pending.pop("event", None)
-        return answer.lower() == "y"
-
-    main_loop = asyncio.get_running_loop()
-    active_hud: Optional[Any] = None
-
-    from src.triggers import TriggerCoordinator
-
-    def on_ambient_suggestion(source: str, title: str, actions: list):
-        if active_hud:
-            active_hud.show_proactive_suggestion(source, title, actions)
-        action_names = " | ".join(f"[{a['label']}]" for a in actions[:2])
-    trigger_coordinator = TriggerCoordinator(
-        on_suggestion_callback=on_ambient_suggestion,
-        on_scheduled_task_callback=lambda g: asyncio.create_task(execute_task_pipeline(g))
-    )
-    await trigger_coordinator.start_all()
-
-    from src.voice.tts import VoiceEngine
-    from src.voice.stt import get_stt_engine
-    from src.voice.barge_in import BargeInController
-
-    voice_engine = VoiceEngine()
-    stt_engine = get_stt_engine()
-
-    def on_voice_command_received(transcript: str):
-        console.print(f"\n[bold cyan]🎙️ Spoken Command Recognized:[/bold cyan] {transcript}")
-        main_loop.call_soon_threadsafe(lambda: asyncio.create_task(execute_task_pipeline(transcript)))
-
-    def on_voice_amplitude(level: float):
-        if active_hud:
-            active_hud.set_amplitude(level)
-
-    def on_voice_partial(partial_text: str):
-        if partial_text:
-            if active_hud:
-                active_hud.update_thought(f"Hearing: {partial_text}")
-
-    barge_in_controller = BargeInController(
-        voice_engine=voice_engine,
-        stt_engine=stt_engine,
-        is_task_busy=lambda: orchestrator.is_busy or voice_engine.is_speaking,
-        on_cancel_task=lambda: main_loop.call_soon_threadsafe(cancel_active_task),
-        on_voice_command=on_voice_command_received,
-        on_amplitude=on_voice_amplitude,
-        on_partial_transcript=on_voice_partial,
-    )
-
-    def cancel_active_task():
-        """Immediately aborts in-flight task, stops LLM generation, and halts voice TTS."""
-        cancelled_task = orchestrator.cancel_current_task()
-        was_speaking = voice_engine.is_speaking
-        voice_engine.stop_speaking()
-        if cancelled_task or was_speaking:
-            console.print("\n[bold red]⛔ Task cancelled by operator (Escape / Barge-In).[/bold red]")
-            if active_hud:
-                active_hud.set_mode("idle")
-                active_hud.append_log("⛔ Task cancelled by operator (Escape / Barge-In).")
-
-    # Global keyboard listener for ESC key
-    try:
-        from pynput import keyboard as pynput_keyboard
-        def on_key_press(key):
-            if key == pynput_keyboard.Key.esc:
-                main_loop.call_soon_threadsafe(cancel_active_task)
-        esc_listener = pynput_keyboard.Listener(on_press=on_key_press)
-        esc_listener.daemon = True
-        esc_listener.start()
-    except Exception as e:
+    except Exception:
         pass
+
+    _splash(orchestrator.config.provider_id, orchestrator.config.model)
+
+    async def cli_hitl_callback(tool_name: str, tool_args: dict) -> str:
+        return await _ask_approval(tool_name, tool_args, risk="DESTRUCTIVE")
+
+    session: PromptSession = PromptSession(history=history, completer=completer, style=pt_style)
 
     async def execute_task_pipeline(goal: str):
         if not goal or not goal.strip():
             return
-        clean_goal = goal.strip()
-        console.print(f"\n[bold cyan]⚡ Goal:[/bold cyan] {clean_goal}\n")
-        if active_hud:
-            active_hud.set_mode("thinking")
-            active_hud.update_thought(f"Planning: {clean_goal}...")
+        cg = goal.strip()
+        console.print()
+        g = Text()
+        g.append("  Goal  ", style=f"bold {YELLOW}")
+        g.append(cg, style=f"bold {WHITE}")
+        console.print(g)
+        console.print(Rule(style=GREY))
+
+        step_n: int = 0
+        t_start     = time.monotonic()
+        tc_times: dict = {}
+        artifacts: list = []
 
         try:
-            async for ev in orchestrator.execute_task(clean_goal, hitl_callback=cli_hitl_callback):
-                ev_type = ev.get("event")
-                if ev_type == "reasoning_chunk":
-                    delta = ev.get("delta", "")
-                    console.print(f"[reasoning]{delta}[/reasoning]", end="")
-                    if active_hud:
-                        active_hud.update_thought(f"Thinking: {delta.strip() or 'Reasoning...'}")
-                elif ev_type == "tool_call_start":
-                    tool_name = ev.get("tool", "")
-                    console.print(f"\n[tool]⚡ Tool Call: {tool_name}[/tool] {ev.get('args')}")
-                    if active_hud:
-                        active_hud.set_mode("thinking")
-                        active_hud.update_badges([tool_name])
-                        active_hud.update_thought(f"Tool: {tool_name}")
-                elif ev_type == "tool_call_result":
-                    res_str = str(ev.get("result", ""))
-                    preview = res_str[:300] + ("..." if len(res_str) > 300 else "")
-                    console.print(f"[dim]↳ Observation: {preview}[/dim]")
-                    if active_hud:
-                        active_hud.update_thought(f"Observation: {res_str[:80]}...")
-                elif ev_type == "task_completed":
-                    final_ans = ev.get("final_answer", "")
-                    console.print("\n" + "="*50)
-                    console.print(Markdown(final_ans or "Task Completed."))
-                    console.print("="*50)
-                    if active_hud:
-                        active_hud.set_mode("idle")
-                        active_hud.update_thought(f"Completed: {(final_ans or 'Task Done')[:100]}")
-                        active_hud.update_badges(["Completed", "Online"])
-                elif ev_type == "task_failed":
-                    final_ans = ev.get("final_answer", "")
-                    err_detail = ev.get("error", "Task failed")
-                    console.print("\n" + "="*50)
-                    console.print(f"[danger]❌ {err_detail}[/danger]")
-                    if final_ans:
-                        console.print(Markdown(final_ans))
-                    console.print("="*50)
-                    if active_hud:
-                        active_hud.set_mode("error")
-                        active_hud.update_thought(f"Failed: {err_detail[:80]}")
-                        active_hud.update_badges(["Failed", "Error"])
-                elif ev_type == "task_cancelled":
-                    console.print("\n[bold red]⛔ Task execution was cancelled.[/bold red]")
-                    if active_hud:
-                        active_hud.set_mode("idle")
-                        active_hud.update_thought("Task cancelled.")
-                        active_hud.update_badges(["Cancelled"])
-                elif ev_type == "error":
-                    err_msg = ev.get("message", "Unknown error")
-                    console.print(f"\n[danger]Error: {err_msg}[/danger]")
-                    if active_hud:
-                        active_hud.set_mode("error")
-                        active_hud.update_thought(f"Error: {err_msg}")
-                        active_hud.update_badges(["Error"])
-        except asyncio.CancelledError:
-            console.print("\n[bold red]⛔ Task cancelled.[/bold red]")
-        except Exception as e:
-            console.print(f"\n[danger]Task Execution Error: {e}[/danger]")
-            if active_hud:
-                active_hud.set_mode("error")
-                active_hud.update_thought(f"Error: {e}")
+            async for ev in orchestrator.execute_task(cg, hitl_callback=cli_hitl_callback):
+                etype = ev.get("event")
 
-    def on_hud_submit(goal_text: str):
-        asyncio.run_coroutine_threadsafe(execute_task_pipeline(goal_text), main_loop)
+                if etype == "skill_activated":
+                    console.print(_bullet("Skill Activated", ev.get("skill", ""), CYAN))
+
+                elif etype == "reasoning_chunk":
+                    delta = ev.get("delta", "")
+                    console.print(delta, end="", style=f"dim italic {CYAN}")
+
+                elif etype == "tool_call_start":
+                    step_n += 1
+                    tn = ev.get("tool", "")
+                    tc_times[tn] = time.monotonic()
+                    _tool_start_card(step_n, tn, ev.get("args", {}))
+
+                elif etype == "tool_call_result":
+                    tn  = ev.get("tool", "")
+                    res = str(ev.get("result", ""))
+                    ms  = (time.monotonic() - tc_times.get(tn, t_start)) * 1000
+                    _tool_result_card(tn, ev.get("success", True), res, ms)
+
+                elif etype == "artifact_presentation":
+                    p = os.path.basename(ev.get("path", ""))
+                    a = ev.get("app", "")
+                    console.print(_bullet("Presenting", f"Opened {p} in {a.upper()} for visual review", GREEN))
+
+                elif etype == "verification_reflection_start":
+                    console.print(_bullet("Verification", "Critiquing output quality and visual layout...", YELLOW))
+
+                elif etype == "tool_call_denied":
+                    console.print(Text(f"  Action denied by operator -- pivoting {ev.get('tool', '')}", style=f"bold {RED}"))
+
+                elif etype == "task_completed":
+                    artifacts = ev.get("artifacts", [])
+                    _task_done_card(
+                        answer=ev.get("final_answer", ""),
+                        tokens=ev.get("tokens", 0),
+                        cost=ev.get("cost_usd", 0.0),
+                        lat=time.monotonic() - t_start,
+                        artifacts=artifacts
+                    )
+
+                elif etype == "task_cancelled":
+                    console.print(Text("  Task cancelled.", style=f"bold {RED}"))
+
+                elif etype == "error":
+                    console.print(Text(f"  Error: {ev.get('message', '')}", style=f"bold {RED}"))
+
+        except asyncio.CancelledError:
+            console.print(Text("  Task cancelled.", style=f"bold {RED}"))
+        except Exception as e:
+            console.print(Text(f"  Error: {e}", style=f"bold {RED}"))
 
     while True:
         try:
-            user_input = (await asyncio.to_thread(Prompt.ask, "\n[bold green]NIM JARVIS[/bold green] >")).strip()
-            if not user_input:
+            raw = await session.prompt_async(
+                FormattedText([("class:prompt", "❯ ")]),
+                placeholder="Ask anything or use /help for commands...",
+            )
+            ui = raw.strip()
+            if not ui:
                 continue
 
-            # ── HITL Confirmation Intercept ───────────────────────────────────
-            # If a destructive tool is waiting for y/n approval, route this input
-            # directly to the confirmation gate instead of spawning a new task.
-            if "event" in _hitl_pending:
-                gate: threading.Event = _hitl_pending["event"]
-                if not gate.is_set():
-                    ans = user_input.lower().strip()
-                    _hitl_pending["answer"] = "y" if ans in ("y", "yes") else "n"
-                    gate.set()
-                    if ans in ("y", "yes"):
-                        console.print("[success]✅ Action approved.[/success]")
-                    else:
-                        console.print("[warning]❌ Action denied — tool execution cancelled.[/warning]")
-                    continue
-
-            # Command Handling
-            if user_input in ["/exit", "exit", "quit", ":q"]:
-                console.print("[info]Shutting down NIM JARVIS... Goodbye![/info]")
+            if ui in ["/exit", "exit", "quit", ":q"]:
+                console.print(Text("Shutting down NIM AGENT... Goodbye!", style=GREY))
                 await bridge_server.stop()
                 sys.exit(0)
 
-            elif user_input.startswith("/key "):
-                parts = user_input.split(" ", 2)
+            elif ui == "/clear":
+                console.clear()
+                _splash(orchestrator.config.provider_id, orchestrator.config.model)
+
+            elif ui == "/gui":
+                console.print(_bullet("GUI", "Launching Holographic WebGL GUI window in background...", CYAN))
+                gui_path = Path(__file__).resolve().parent.parent / "gui.py"
+                subprocess.Popen(
+                    [sys.executable, str(gui_path)],
+                    creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+                )
+
+            elif ui in ["/reset", "/new"]:
+                orchestrator.reset_session()
+                console.print(_bullet("Session", "Active session scratchpad cleared for fresh context.", GREEN))
+
+            elif ui == "/skills":
+                _cmd_skills()
+
+            elif ui == "/sys":
+                _cmd_sys()
+
+            elif ui == "/help":
+                rows = [
+                    ("/gui",                     "Launch the Ultron Holographic WebGL GUI window"),
+                    ("/skills",                  "List all extensible skills and rules"),
+                    ("/reset",                   "Clear multi-turn session memory for a fresh start"),
+                    ("/sys",                     "Live system telemetry (CPU, RAM, Disk)"),
+                    ("/keys",                    "List configured AI providers and keys"),
+                    ("/key <provider> <key>",    "Set provider API key"),
+                    ("/provider <id>",           "Switch active provider (e.g. nim-cloud, gemini)"),
+                    ("/model <name>",            "Switch model name"),
+                    ("/tools",                   "List all registered OS tools"),
+                    ("/undo",                    "Revert last file change"),
+                    ("/clear",                   "Clear terminal screen"),
+                    ("/exit",                    "Exit NIM AGENT"),
+                ]
+                tbl = Table(box=None, show_header=False, padding=(0, 2))
+                tbl.add_column(style=f"bold {YELLOW}", no_wrap=True)
+                tbl.add_column(style=WHITE)
+                for cmd, desc in rows:
+                    tbl.add_row(cmd, desc)
+                console.print(Panel(tbl, title="All Commands", border_style=YELLOW, padding=(0, 1)))
+
+            elif ui.startswith("/key "):
+                parts = ui.split(" ", 2)
                 if len(parts) == 3:
-                    provider, key_val = parts[1].strip().lower(), parts[2].strip()
-                    secret_store.set_key(provider, key_val)
-                    preset = next((p for p in PROVIDER_PRESETS if p.id == provider), None)
+                    p_in, k = parts[1].strip().lower(), parts[2].strip()
+                    preset = get_provider_preset(p_in)
+                    prov   = preset.id if preset else p_in
+                    secret_store.set_key(prov, k)
                     if preset:
                         orchestrator.config.provider_id = preset.id
-                        orchestrator.config.base_url = preset.base_url
-                        orchestrator.config.model = preset.default_model
+                        orchestrator.config.base_url    = preset.base_url
+                        orchestrator.config.model       = preset.default_model
                         orchestrator.model_router.primary_provider_id = preset.id
                         orchestrator.model_router.primary_model = preset.default_model
-                        console.print(f"[success]✓ API key for '{preset.label}' ({provider}) saved & activated as default provider.[/success]")
-                        console.print(f"[info]Active model: [bold]{preset.default_model}[/bold][/info]")
+                        console.print(_bullet("OK", f"Key saved for {preset.label}. Model: {preset.default_model}", GREEN))
                     else:
-                        console.print(f"[success]✓ API key for '{provider}' saved to OS Credential Store.[/success]")
+                        console.print(_bullet("OK", f"Key saved for {prov}", GREEN))
                 else:
-                    console.print("[warning]Usage: /key <provider_id> <api_key>[/warning]")
-                continue
+                    console.print(Text("Usage: /key <provider_id> <api_key>", style=YELLOW))
 
-            elif user_input.startswith("/provider "):
-                p_id = user_input.split(" ", 1)[1].strip().lower()
-                preset = next((p for p in PROVIDER_PRESETS if p.id == p_id), None)
+            elif ui.startswith("/provider "):
+                p_id = ui.split(" ", 1)[1].strip().lower()
+                preset = get_provider_preset(p_id)
                 if preset:
                     orchestrator.config.provider_id = preset.id
-                    orchestrator.config.base_url = preset.base_url
-                    orchestrator.config.model = preset.default_model
+                    orchestrator.config.base_url    = preset.base_url
+                    orchestrator.config.model       = preset.default_model
                     orchestrator.model_router.primary_provider_id = preset.id
                     orchestrator.model_router.primary_model = preset.default_model
-                    console.print(f"[success]✓ Active provider switched to '[bold]{preset.label}[/bold]' ({preset.id}).[/success]")
-                    console.print(f"[info]Default model set to: [bold]{preset.default_model}[/bold][/info]")
+                    console.print(_bullet("OK", f"Switched to {preset.label} (Model: {preset.default_model})", GREEN))
                 else:
-                    console.print(f"[warning]Unknown provider '{p_id}'. Available: {', '.join(p.id for p in PROVIDER_PRESETS)}[/warning]")
-                continue
+                    avail = ", ".join(p.id for p in PROVIDER_PRESETS)
+                    console.print(Text(f"Unknown provider. Available: {avail}", style=YELLOW))
 
-            elif user_input.startswith("/model "):
-                m_name = user_input.split(" ", 1)[1].strip()
-                orchestrator.config.model = m_name
-                orchestrator.model_router.primary_model = m_name
-                console.print(f"[success]✓ Active model set to '[bold]{m_name}[/bold]'.[/success]")
-                continue
+            elif ui.startswith("/model "):
+                m = ui.split(" ", 1)[1].strip()
+                orchestrator.config.model = m
+                orchestrator.model_router.primary_model = m
+                console.print(_bullet("OK", f"Model set to {m}", GREEN))
 
-            elif user_input == "/keys":
+            elif ui == "/keys":
                 configured = secret_store.list_configured_providers()
-                table = Table(title=f"Configured Providers (Active: {orchestrator.config.provider_id} / {orchestrator.config.model})")
-                table.add_column("Provider ID", style="cyan")
-                table.add_column("Label", style="white")
-                table.add_column("Status", style="green")
-                table.add_column("Default Model", style="yellow")
+                tbl = Table(
+                    title=f"Providers (Active: {orchestrator.config.provider_id} / {orchestrator.config.model})",
+                    border_style=YELLOW,
+                )
+                tbl.add_column("ID",    style=CYAN, no_wrap=True)
+                tbl.add_column("Label", style=WHITE)
+                tbl.add_column("Key",   style=GREEN)
+                tbl.add_column("Default Model", style=YELLOW)
                 for p in PROVIDER_PRESETS:
-                    status = "✓ Configured" if p.id in configured else "[dim]Not configured[/dim]"
-                    active_marker = " [bold green]★ ACTIVE[/bold green]" if p.id == orchestrator.config.provider_id else ""
-                    table.add_row(p.id + active_marker, p.label, status, p.default_model)
-                console.print(table)
-                continue
+                    status = "set" if p.id in configured else "--"
+                    marker = " *" if p.id == orchestrator.config.provider_id else ""
+                    tbl.add_row(p.id + marker, p.label, status, p.default_model)
+                console.print(tbl)
 
-            elif user_input == "/undo":
+            elif ui == "/tools":
+                tbl = Table(title=f"Registered Tools ({len(tool_registry.list_tools())})", border_style=YELLOW)
+                tbl.add_column("Name", style=PURPLE, no_wrap=True)
+                tbl.add_column("Origin", style=CYAN)
+                tbl.add_column("Risk", style=YELLOW)
+                tbl.add_column("Description", style=WHITE)
+                for t in sorted(tool_registry.list_tools(), key=lambda x: x.name):
+                    desc = t.description[:60] + ("..." if len(t.description) > 60 else "")
+                    tbl.add_row(t.name, t.origin, t.risk_level.value, desc)
+                console.print(tbl)
+
+            elif ui == "/undo":
                 res = snapshot_mgr.undo_last_action()
                 if res.get("success"):
-                    console.print(f"[success]✓ Undo successful: {res.get('message')}[/success]")
+                    console.print(_bullet("OK", res.get("message", "Undo successful"), GREEN))
                 else:
-                    console.print(f"[warning]Undo failed: {res.get('message')}[/warning]")
-                continue
+                    console.print(_bullet("--", res.get("message", "Nothing to undo"), RED))
 
-            elif user_input.startswith("/bridge"):
-                parts = user_input.split(" ", 2)
-                if len(parts) == 3 and parts[1].lower() == "set":
-                    new_token = parts[2].strip()
-                    bridge_server.auth_token = new_token
-                    secret_store.set_key("bridge_auth_token", new_token)
-                    console.print(f"[success]✓ Bridge auth token updated to: [bold]{new_token}[/bold][/success]")
-                else:
-                    table = Table(title="Browser Bridge Status")
-                    table.add_column("Property", style="cyan")
-                    table.add_column("Value", style="yellow")
-                    table.add_row("Server Endpoint", f"ws://{bridge_server.host}:{bridge_server.port}")
-                    table.add_row("Browser Connected", "Yes (Ready)" if bridge_server.is_client_connected else "No (Waiting for extension)")
-                    table.add_row("Pairing Auth Token", bridge_server.auth_token)
-                    console.print(table)
-                    console.print("[dim]Tip: You can set a custom token with: /bridge set <token>[/dim]")
-                continue
-
-            elif user_input in ("/gui", "/hud"):
-                try:
-                    import subprocess
-                    from pathlib import Path
-                    if getattr(sys, "frozen", False):
-                        subprocess.Popen([sys.executable, "--gui"])
-                    else:
-                        main_py = Path(__file__).resolve().parent.parent / "main.py"
-                        subprocess.Popen([sys.executable, str(main_py), "--gui"])
-                    console.print("[success]✓ NIM JARVIS Holographic Command Interface GUI launched![/success]")
-                    console.print("[dim]Cyberpunk glassmorphic UI active. Press Alt+Space to toggle.[/dim]")
-                except Exception as ge:
-                    console.print(f"[warning]Could not launch Holographic GUI: {ge}[/warning]")
-                continue
-
-            elif user_input.startswith("/mic"):
-                parts = user_input.split(" ")
-                subcmd = parts[1].strip().lower() if len(parts) > 1 else ("off" if barge_in_controller.is_listening else "on")
-                if subcmd == "on":
-                    barge_in_controller.enable_voice_listener()
-                    console.print("[success]🎙️ Ambient Voice Listener & True Barge-In: [bold]ACTIVATED[/bold][/success]")
-                    console.print("[dim]Speak naturally at any time (Neural Silero-VAD + faster-whisper).[/dim]")
-                    if active_hud:
-                        active_hud.set_mode("listening")
-                elif subcmd == "off":
-                    barge_in_controller.disable_voice_listener()
-                    console.print("[info]🔇 Ambient Voice Listener: [bold]MUTED[/bold][/info]")
-                    if active_hud:
-                        active_hud.set_mode("idle")
-                elif subcmd == "status":
-                    status = barge_in_controller.get_status()
-                    stt_info = status.get("stt", {})
-                    table = Table(title="Voice & Speech System Status")
-                    table.add_column("Subsystem", style="cyan")
-                    table.add_column("Property", style="yellow")
-                    table.add_column("Value", style="green")
-                    table.add_row("Listener", "Active", "Yes" if status.get("listener_active") else "No (Muted)")
-                    table.add_row("TTS", "Persona / Voice", f"{status.get('voice')} ({voice_engine.voice})")
-                    table.add_row("VAD", "Backend", str(status.get("vad", {}).get("backend")))
-                    table.add_row("VAD", "Energy Threshold", str(status.get("vad", {}).get("energy_threshold")))
-                    table.add_row("STT", "Backend", str(stt_info.get("backend")))
-                    table.add_row("STT", "Model", str(stt_info.get("model")))
-                    table.add_row("STT", "Hardware / Quant", f"{stt_info.get('device', 'cpu').upper()} ({stt_info.get('compute_type', 'int8')})")
-                    table.add_row("STT", "Accent Profile", f"[bold cyan]{stt_info.get('accent', 'indian').upper()}[/bold cyan]")
-                    table.add_row("STT", "Avg Latency", f"{stt_info.get('avg_latency_ms', 0)} ms")
-                    table.add_row("STT", "Transcriptions", str(stt_info.get("transcriptions", 0)))
-                    console.print(table)
-                elif subcmd == "accent" and len(parts) > 2:
-                    acc_name = parts[2].strip().lower()
-                    ok = barge_in_controller.set_accent(acc_name)
-                    if ok:
-                        console.print(f"[success]✓ Active STT accent profile set to: [bold]{acc_name}[/bold][/success]")
-                    else:
-                        console.print(f"[warning]Unknown accent profile '{acc_name}'. Options: indian, british, american, australian, global[/warning]")
-                elif subcmd == "model" and len(parts) > 2:
-                    m_name = parts[2].strip()
-                    console.print(f"[info]Loading Whisper model '[bold]{m_name}[/bold]'...[/info]")
-                    ok = stt_engine.switch_model(m_name)
-                    if ok:
-                        console.print(f"[success]✓ Active Whisper STT model switched to: [bold]{m_name}[/bold][/success]")
-                    else:
-                        console.print(f"[warning]Failed to load '{m_name}'. Error: {stt_engine._load_error}[/warning]")
-                else:
-                    console.print("[dim]Usage: /mic on | /mic off | /mic status | /mic accent <indian|british|american|australian|global> | /mic model <base|small|large-v3-turbo>[/dim]")
-                continue
-
-            elif user_input.startswith("/accent "):
-                acc_name = user_input.split(" ", 1)[1].strip().lower()
-                ok = barge_in_controller.set_accent(acc_name)
-                if ok:
-                    console.print(f"[success]✓ Active STT accent profile set to: [bold]{acc_name}[/bold][/success]")
-                else:
-                    console.print(f"[warning]Unknown accent profile '{acc_name}'. Options: indian, british, american, australian, global[/warning]")
-                continue
-
-            elif user_input.startswith("/persona ") or user_input.startswith("/voice_persona "):
-                parts = user_input.split(" ", 1)
-                p_name = parts[1].strip().lower()
-                voice_engine.set_persona(p_name)
-                console.print(f"[success]✓ Active neural voice persona set to: [bold]{p_name}[/bold][/success]")
-                continue
-
-            elif user_input == "/listen":
-                console.print("[cyan]🎙️ Listening for speech command... Speak now:[/cyan]")
-                if active_hud:
-                    active_hud.set_mode("listening")
-                transcript = await asyncio.to_thread(stt_engine.listen_once, 6.0, 12.0)
-                if transcript:
-                    console.print(f"[success]🗣️ Transcribed:[/success] {transcript}")
-                    await execute_task_pipeline(transcript)
-                else:
-                    console.print("[warning]No intelligible speech detected.[/warning]")
-                    if active_hud:
-                        active_hud.set_mode("idle")
-                continue
-
-            elif user_input.startswith("/voice ") or user_input.startswith("/speak "):
-                parts = user_input.split(" ", 1)
-                if len(parts) == 2:
-                    speech_text = parts[1].strip()
-                    console.print(f"[info]🎙️ Speaking: '{speech_text}'...[/info]")
-                    await voice_engine.speak(speech_text)
-                continue
-
-            elif user_input.startswith("/vision_provider "):
-                # /vision_provider <provider_id> <model>
-                # Example: /vision_provider nim-cloud nvidia/llama-3.2-90b-vision-instruct
-                parts = user_input.split(" ", 2)
-                if len(parts) >= 3:
-                    v_provider_id = parts[1].strip()
-                    v_model = parts[2].strip()
-                    from src.llm.vision import get_vision_client
-                    vc = get_vision_client(provider_id=v_provider_id, model=v_model, force_reinit=True)
-                    status = vc.get_status()
-                    console.print(f"[success]✓ Vision provider set:[/success] [bold]{v_provider_id}[/bold] → [cyan]{v_model}[/cyan]")
-                    if not status["api_key_configured"]:
-                        console.print(f"[warning]⚠️ No API key for '{v_provider_id}'. Run: /key {v_provider_id} <your_api_key>[/warning]")
-                else:
-                    console.print("[warning]Usage: /vision_provider <provider_id> <model>[/warning]")
-                    console.print("[dim]Example: /vision_provider nim-cloud nvidia/llama-3.2-90b-vision-instruct[/dim]")
-                continue
-
-            elif user_input == "/vision_status":
-                from src.llm.vision import get_vision_client
-                vc = get_vision_client()
-                status = vc.get_status()
-                vtable = Table(title="👁️ Vision Provider Status")
-                vtable.add_column("Setting", style="cyan")
-                vtable.add_column("Value", style="white")
-                vtable.add_row("Provider ID", status["provider"])
-                vtable.add_row("Vision Model", status["model"])
-                vtable.add_row("Base URL", status["base_url"])
-                vtable.add_row("API Key Configured", "✅ Yes" if status["api_key_configured"] else "❌ No")
-                console.print(vtable)
-                if not status["api_key_configured"]:
-                    console.print(f"[dim]Set vision key: /key {status['provider']} <your_api_key>[/dim]")
-                continue
-
-            elif user_input == "/tools":
-                table = Table(title="Registered Tools")
-                table.add_column("Name", style="magenta")
-                table.add_column("Origin", style="cyan")
-                table.add_column("Risk Level", style="yellow")
-                table.add_column("Description", style="white")
-                for t in tool_registry.list_tools():
-                    table.add_row(t.name, t.origin, t.risk_level.value, t.description[:60] + "...")
-                console.print(table)
-                continue
-
-            # Execute Task via ReAct Loop
-            await execute_task_pipeline(user_input)
+            else:
+                await execute_task_pipeline(ui)
 
         except (KeyboardInterrupt, EOFError):
-            console.print("\n[info]Shutting down NIM JARVIS... Goodbye![/info]")
-            await trigger_coordinator.stop_all()
+            console.print(Text("\nShutting down NIM AGENT... Goodbye!", style=GREY))
             await bridge_server.stop()
             break
         except Exception as e:
-            console.print(f"\n[danger]Unexpected error: {e}[/danger]")
-
+            console.print(Text(f"Error: {e}", style=f"bold {RED}"))

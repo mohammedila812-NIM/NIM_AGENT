@@ -28,6 +28,23 @@ DANGEROUS_SHELL_PATTERNS = [
     re.compile(r"(?i)\b(Remove-Item\s+-Recurse\s+-Force\s+[A-Za-z]:\\)"),
 ]
 
+# Patterns attempting Administrator elevation or targeting system root / other users
+ADMIN_ELEVATION_PATTERNS = [
+    re.compile(r"(?i)\b(-Verb\s+RunAs|runas\b|sudo\b)"),
+    re.compile(r"(?i)\b(net\s+(user|localgroup))\b"),
+    re.compile(r"(?i)\b(takeown|icacls)\b"),
+    re.compile(r"(?i)\b(sc\s+(create|config|delete|start|stop))\b"),
+    re.compile(r"(?i)c:[\\/]users[\\/]administrator"),
+    re.compile(r"(?i)c:[\\/]windows[\\/]system32[\\/]config"),
+]
+
+# Shell commands that mutate, create, delete, or move files (requiring approval)
+FILE_MUTATION_SHELL_PATTERNS = [
+    re.compile(r"(?i)\b(Remove-Item|New-Item|Set-Content|Add-Content|Out-File|Move-Item|Copy-Item|Clear-Content)\b"),
+    re.compile(r"(?i)\b(del|erase|rmdir|rd|ren|rename|move|copy)\b\s+"),
+    re.compile(r"(?i)>\s*[\w\.\-\\/]+"),
+]
+
 class SecurityGuard:
     """
     Evaluates action risk, performs sensitive content redaction before cloud transmission,
@@ -46,11 +63,17 @@ class SecurityGuard:
 
     @staticmethod
     def evaluate_shell_command(command: str) -> Tuple[ActionRiskLevel, Optional[str]]:
-        """Checks if a shell command contains dangerous system-altering instructions."""
+        """Checks if a shell command contains dangerous system-altering or administrative instructions."""
+        for pattern in ADMIN_ELEVATION_PATTERNS:
+            if pattern.search(command):
+                return ActionRiskLevel.CRITICAL, f"Blocked administrator privilege escalation attempt: {command}"
         for pattern in DANGEROUS_SHELL_PATTERNS:
             if pattern.search(command):
                 return ActionRiskLevel.CRITICAL, f"Blocked dangerous system command pattern: {command}"
-        return ActionRiskLevel.MODERATE, None
+        for pattern in FILE_MUTATION_SHELL_PATTERNS:
+            if pattern.search(command):
+                return ActionRiskLevel.DESTRUCTIVE, f"Shell command mutates filesystem: {command}"
+        return ActionRiskLevel.SAFE, None
 
     @staticmethod
     def evaluate_tool_call(tool_name: str, args: Dict[str, Any]) -> ActionRiskLevel:
@@ -95,7 +118,10 @@ class SecurityGuard:
                 return ActionRiskLevel.DESTRUCTIVE
             return ActionRiskLevel.MODERATE
 
-        if tool_name in ["write_file", "move_file", "set_clipboard"]:
+        if tool_name in ["write_file", "move_file"]:
+            return ActionRiskLevel.DESTRUCTIVE
+
+        if tool_name == "set_clipboard":
             return ActionRiskLevel.MODERATE
 
         return ActionRiskLevel.SAFE

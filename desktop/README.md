@@ -59,7 +59,12 @@ Inside the CLI:
 /key openai sk-your-key-here
 # or for Groq:
 /key groq gsk-your-key-here
+# or for Experiential Labs:
+/key explabs your-explabs-key-here
 ```
+
+Experiential Labs can also be configured with `EXPLABS_API_KEY` in your environment.
+Its default model is `claude-fable-5` and endpoint is `https://api.experientiallabs.ai/v1`.
 
 ### 3. Check Configured Keys & Tools
 
