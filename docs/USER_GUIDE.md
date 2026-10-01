@@ -1,6 +1,6 @@
 # NIM Agent User Guide
 
-Current release: **v1.1.0**
+Current release: **v1.3.0**
 
 ## What NIM Agent does
 

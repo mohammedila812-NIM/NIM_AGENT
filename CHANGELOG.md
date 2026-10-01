@@ -2,7 +2,7 @@
 
 All notable changes to NIM Agent are documented here.
 
-## v1.2.0 — 2026-10-01
+## v1.3.0 — 2026-10-01
 
 ### 🚀 Pure Autonomous AI Browser Agent Transformation
 
