@@ -389,7 +389,7 @@ export const WatchPanel: React.FC = () => {
                   onChange={(e) => setSelectedMacroId(e.target.value)}
                   className="w-full text-xs px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-100 focus:outline-none focus:border-indigo-500"
                 >
-                  <option value="">None (Desktop notification only)</option>
+                  <option value="">None (Browser notification only)</option>
                   {macros.map((m) => (
                     <option key={m.macroId} value={m.macroId}>
                       ⚡ {m.name} ({m.actionSequence?.length || 0} steps)

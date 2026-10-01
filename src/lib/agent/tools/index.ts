@@ -407,7 +407,7 @@ export const AGENT_TOOLS: Tool[] = [
     type: 'function',
     function: {
       name: 'create_watch',
-      description: 'Schedule a recurring background monitor for a webpage to track price drops, inventory, new posts, or content changes. Sends desktop notifications when triggers fire.',
+      description: 'Schedule a recurring background monitor for a webpage to track price drops, inventory, new posts, or content changes. Sends browser notifications when triggers fire.',
       parameters: {
         type: 'object',
         properties: {

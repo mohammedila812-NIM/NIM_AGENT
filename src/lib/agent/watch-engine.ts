@@ -201,7 +201,7 @@ export async function executeWatchCheck(
 
     const fullAlertMessage = `${summary}${macroSummary}`.trim();
 
-    // 6. Fire desktop notification if changed
+    // 6. Fire browser notification if changed
     if (changed && watch.notificationOnMatch !== false) {
       if (typeof chrome !== 'undefined' && chrome.notifications) {
         const notifId = `watch-alert-${watch.watchId}-${Date.now()}`;

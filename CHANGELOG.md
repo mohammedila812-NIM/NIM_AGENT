@@ -2,7 +2,18 @@
 
 All notable changes to NIM Agent are documented here.
 
-## v1.1.0 — 2026-08-30
+## v1.2.0 — 2026-10-01
+
+### 🚀 Pure Autonomous AI Browser Agent Transformation
+
+- **Decommissioned Desktop Subsystems:** Removed all legacy Python desktop subsystems, root runners (`run.py`, `run.bat`), and temporary runner scripts.
+- **Removed Local WebSocket Bridge:** Completely decoupled the browser extension from the local `ws://127.0.0.1:7432` bridge and removed `'http://127.0.0.1:7432/*'` from host permissions in `wxt.config.ts`.
+- **Pure Browser Extension Architecture:** Clean standalone Manifest V3 extension for Chrome, Edge, Brave, Opera, and Firefox Add-on.
+- **Autonomous In-Browser ReAct Loop:** Enhanced DOM reader, numeric element tagging, atomic form filling (`fill_form`), and download exports.
+- **Background Watch Engine:** Alarm-driven background monitors with native browser notifications for price drops and stock changes.
+- **Privacy & Security:** All API keys and session memories remain strictly sandboxed in local browser extension storage with zero telemetry.
+- **Refreshed Documentation & Portal:** Replaced all hybrid desktop references across `README.md`, `USER_GUIDE.md`, `website/index.html`, and `website/js/app.js` with pure browser agent documentation and simulators.
+
 
 ### 🎙️ Voice & Speech System (Feature 6 — Privacy-First STT with True Barge-In)
 

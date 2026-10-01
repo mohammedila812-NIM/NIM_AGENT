@@ -51,7 +51,7 @@ export async function executeCreateWatch(options: CreateWatchOptions): Promise<s
 - **Status:** 🟢 Active (Scheduled in background)${condPart}${selPart}
 - **Watch ID:** \`${watchId}\`
 
-NIM Agent will now automatically monitor this page in the background and trigger desktop notifications when changes or threshold conditions are detected.`;
+NIM Agent will now automatically monitor this page in the background and trigger browser notifications when changes or threshold conditions are detected.`;
 }
 
 /**
