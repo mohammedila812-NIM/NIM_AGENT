@@ -224,8 +224,21 @@ async function handleAgentStart(
   };
 
   let chosenModelId = modelId || settings.selectedModelId;
+
+  // Provider-aware default model: each provider has a sane default
+  const PROVIDER_DEFAULT_MODELS: Record<string, string> = {
+    'nim-cloud':  'meta/llama-3.3-70b-instruct',
+    'nim-local':  'meta/llama-3.3-70b-instruct',
+    'gemini':     'gemini-2.0-flash',
+    'openai':     'gpt-4o-mini',
+    'groq':       'llama-3.3-70b-versatile',
+    'ollama':     'llama3.2',
+    'kira':       'llama-3.3-70b-versatile',
+    'custom':     'gpt-4o-mini',
+  };
+
   if (!chosenModelId || !isChatModel(chosenModelId)) {
-    chosenModelId = 'meta/llama-3.3-70b-instruct';
+    chosenModelId = PROVIDER_DEFAULT_MODELS[providerId] ?? 'meta/llama-3.3-70b-instruct';
   }
 
   const model: DiscoveredModel = settings.selectedModel && isChatModel(settings.selectedModel.id)

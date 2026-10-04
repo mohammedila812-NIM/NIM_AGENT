@@ -342,6 +342,7 @@ export default function App() {
             hitlDetail={hitlDetail}
             onHITLResponse={handleHITLResponse}
             costState={costState}
+            onOpenSettings={() => setActiveTab('settings')}
           />
         )}
         {activeTab === 'trace' && (

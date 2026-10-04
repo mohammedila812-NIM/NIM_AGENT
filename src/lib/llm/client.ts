@@ -123,8 +123,9 @@ export async function chatCompletion(
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
-  if (config.apiKey && config.id !== 'ollama') {
-    headers['Authorization'] = `Bearer ${config.apiKey}`;
+  const trimmedKey = config.apiKey?.trim();
+  if (trimmedKey && config.id !== 'ollama') {
+    headers['Authorization'] = `Bearer ${trimmedKey}`;
   }
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -140,6 +141,18 @@ export async function chatCompletion(
         if (res.status === 403 && (config.id === 'ollama' || config.baseUrl.includes('11434'))) {
           throw new Error(
             `Ollama 403 Forbidden: Ollama blocks browser extension requests by default. To fix, set environment variable OLLAMA_ORIGINS="*" and restart Ollama.`
+          );
+        }
+
+        if (res.status === 401) {
+          throw new Error(
+            `API error (401 Unauthorized): Invalid API key for provider "${config.label}". Please verify your API key in Settings (gear icon) and click "Save Configuration". Response: ${text}`
+          );
+        }
+
+        if (res.status === 404) {
+          throw new Error(
+            `API error (404 Not Found): Model "${body.model}" or endpoint not found for provider "${config.label}". Please check your model in Settings. Response: ${text}`
           );
         }
 
@@ -189,8 +202,9 @@ export async function* streamChatCompletion(
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
-  if (config.apiKey) {
-    headers['Authorization'] = `Bearer ${config.apiKey}`;
+  const trimmedKey = config.apiKey?.trim();
+  if (trimmedKey) {
+    headers['Authorization'] = `Bearer ${trimmedKey}`;
   }
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {

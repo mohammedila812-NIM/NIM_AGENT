@@ -20,7 +20,12 @@ export interface ProviderKeys {
  * Keys persist until explicitly cleared by the user or extension is removed.
  */
 export async function saveProviderKeys(providerId: string, keys: ProviderKeys): Promise<void> {
-  await chrome.storage.local.set({ [`keys:${providerId}`]: keys });
+  const sanitized: ProviderKeys = {
+    ...keys,
+    llmApiKey: keys.llmApiKey.trim(),
+    searchApiKey: keys.searchApiKey ? keys.searchApiKey.trim() : undefined,
+  };
+  await chrome.storage.local.set({ [`keys:${providerId}`]: sanitized });
 }
 
 /**

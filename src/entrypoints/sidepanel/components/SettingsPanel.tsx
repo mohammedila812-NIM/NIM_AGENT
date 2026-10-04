@@ -5,6 +5,17 @@ import { saveProviderKeys, loadProviderKeys, saveWorkerConfig, loadWorkerConfig 
 import { discoverModels, sortModelsForDisplay, isChatModel, type DiscoveredModel } from '../../../lib/llm/model-registry';
 import { DEFAULT_LIMITS, resetDailyCounters, type CostLimits } from '../../../lib/agent/cost-guard';
 
+export const PROVIDER_DEFAULT_MODELS: Record<string, string> = {
+  'nim-cloud':  'meta/llama-3.3-70b-instruct',
+  'nim-local':  'meta/llama-3.3-70b-instruct',
+  'gemini':     'gemini-2.0-flash',
+  'openai':     'gpt-4o-mini',
+  'groq':       'llama-3.3-70b-versatile',
+  'ollama':     'llama3.2',
+  'kira':       'llama-3.3-70b-versatile',
+  'custom':     'gpt-4o-mini',
+};
+
 export const SettingsPanel: React.FC = () => {
   const [providerId, setProviderId] = useState('nim-cloud');
   const [customBaseUrl, setCustomBaseUrl] = useState('');
@@ -57,7 +68,7 @@ export const SettingsPanel: React.FC = () => {
     if (local.selectedModelId && isChatModel(local.selectedModelId)) {
       setSelectedModelId(local.selectedModelId);
     } else {
-      setSelectedModelId('meta/llama-3.3-70b-instruct');
+      setSelectedModelId(PROVIDER_DEFAULT_MODELS[pId] ?? 'meta/llama-3.3-70b-instruct');
     }
 
     // Load worker sub-agent settings
@@ -70,20 +81,21 @@ export const SettingsPanel: React.FC = () => {
   };
 
   const handleFetchModels = async () => {
-    if (!apiKey) {
+    const cleanKey = apiKey.trim();
+    if (!cleanKey) {
       alert('Please enter your API Key first.');
       return;
     }
     setIsLoadingModels(true);
     try {
       const preset = PROVIDER_PRESETS.find((p) => p.id === providerId);
-      const baseUrl = providerId === 'custom' ? customBaseUrl : preset?.baseUrl || 'https://integrate.api.nvidia.com/v1';
+      const baseUrl = providerId === 'custom' ? customBaseUrl.trim() : preset?.baseUrl || 'https://integrate.api.nvidia.com/v1';
 
       const list = await discoverModels({
         id: providerId,
         label: preset?.label || 'Custom',
         baseUrl,
-        apiKey,
+        apiKey: cleanKey,
       });
 
       const sorted = sortModelsForDisplay(list);
@@ -103,23 +115,43 @@ export const SettingsPanel: React.FC = () => {
     }
   };
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // When the user switches provider, auto-load any previously saved key for it
+  const handleProviderChange = async (newId: string) => {
+    setProviderId(newId);
+    setModels([]);
+    // Auto-update model to the provider's default model
+    setSelectedModelId(PROVIDER_DEFAULT_MODELS[newId] ?? 'meta/llama-3.3-70b-instruct');
+    // Eagerly load the stored key for the newly selected provider
+    const saved = await loadProviderKeys(newId);
+    setApiKey(saved?.llmApiKey ?? '');
+    if (saved?.searchApiKey) setSearchApiKey(saved.searchApiKey);
+  };
+
+  const handleSave = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    const cleanApiKey = apiKey.trim();
+    const cleanSearchApiKey = searchApiKey.trim();
+
+    if (!cleanApiKey && providerId !== 'ollama') {
+      alert(`Please enter a valid API key for ${providerId} before saving.`);
+      return;
+    }
+
     await saveProviderKeys(providerId, {
-      llmApiKey: apiKey,
-      searchApiKey: searchApiKey || undefined,
+      llmApiKey: cleanApiKey,
+      searchApiKey: cleanSearchApiKey || undefined,
       searchProvider,
     });
 
     await saveWorkerConfig({
       providerId: workerProviderId,
-      apiKey: workerApiKey,
-      modelId: workerModelId,
+      apiKey: workerApiKey.trim(),
+      modelId: workerModelId.trim(),
     });
 
     const chosenModel = models.find((m) => m.id === selectedModelId) || {
       id: selectedModelId,
-      contextLength: 128_000,
+      contextLength: selectedModelId.includes('gemini') ? 1_000_000 : 128_000,
       supportsTools: true,
       supportsVision: false,
       isAgentTuned: true,
@@ -128,7 +160,7 @@ export const SettingsPanel: React.FC = () => {
 
     await chrome.storage.local.set({
       activeProviderId: providerId,
-      customBaseUrl,
+      customBaseUrl: customBaseUrl.trim(),
       selectedModelId,
       selectedModel: chosenModel,
       searchProvider,
@@ -136,7 +168,7 @@ export const SettingsPanel: React.FC = () => {
     });
 
     setSaveSuccess(true);
-    setTimeout(() => setSaveSuccess(false), 2000);
+    setTimeout(() => setSaveSuccess(false), 2500);
   };
 
   return (
@@ -160,10 +192,7 @@ export const SettingsPanel: React.FC = () => {
         </label>
         <select
           value={providerId}
-          onChange={(e) => {
-            setProviderId(e.target.value);
-            setModels([]);
-          }}
+          onChange={(e) => { void handleProviderChange(e.target.value); }}
           className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-brand-500"
         >
           {PROVIDER_PRESETS.map((p) => (
@@ -206,8 +235,32 @@ export const SettingsPanel: React.FC = () => {
               ? 'Not required for local Ollama'
               : 'nvapi-... / sk-...'
           }
-          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 font-mono focus:outline-none focus:border-brand-500"
+          className={`w-full bg-slate-950 border rounded-lg px-3 py-2 text-slate-100 font-mono focus:outline-none focus:border-brand-500 ${
+            !apiKey && providerId !== 'ollama' ? 'border-red-500/70' : 'border-slate-700'
+          }`}
         />
+        {!apiKey && providerId !== 'ollama' && (
+          <div className="flex items-center gap-1.5 text-red-400 text-[11px] mt-1">
+            <AlertTriangle className="w-3 h-3 flex-shrink-0" />
+            <span>No API key entered for <strong>{providerId}</strong>. Enter your key and click <strong>Save Key & Activate</strong>.</span>
+          </div>
+        )}
+        {apiKey && (
+          <div className="flex items-center gap-1.5 text-green-400 text-[11px] mt-1">
+            <Check className="w-3 h-3 flex-shrink-0" />
+            <span>API key entered. Click <strong>Save Key & Activate</strong> below to apply.</span>
+          </div>
+        )}
+        <div className="pt-1.5">
+          <button
+            type="button"
+            onClick={() => handleSave()}
+            className="w-full py-2 bg-brand-600 hover:bg-brand-500 text-white font-semibold rounded-lg flex items-center justify-center gap-1.5 transition shadow text-xs"
+          >
+            {saveSuccess ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
+            <span>{saveSuccess ? 'Saved & Activated!' : `Save Key & Activate ${providerId}`}</span>
+          </button>
+        </div>
       </div>
 
       {/* Model Selector & Discovery */}

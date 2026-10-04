@@ -5,7 +5,7 @@ import {
   ArrowUpDown, Camera, Loader2, ChevronDown, ChevronRight,
   Zap, Layers, Table, ExternalLink, Sparkles, List, Clock, History, CheckSquare,
   Download, Code2, Bookmark, Bell, Eye, PlayCircle, Database, FolderPlus,
-  Brain, Network, Share2, PlusCircle,
+  Brain, Network, Share2, PlusCircle, Settings, AlertTriangle, Cpu,
 } from 'lucide-react';
 import { MarkdownMessage } from './MarkdownMessage';
 
@@ -37,6 +37,7 @@ interface ChatPanelProps {
   hitlDetail: string | null;
   onHITLResponse: (approved: boolean) => void;
   costState: { taskTokens: number; todayTokens: number; todayCostUsd: number };
+  onOpenSettings?: () => void;
 }
 
 // ── Tool icon + label map ─────────────────────────────────────────────────────
@@ -227,10 +228,37 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   hitlDetail,
   onHITLResponse,
   costState,
+  onOpenSettings,
 }) => {
   const [input, setInput] = useState('');
   const [visionOptIn, setVisionOptIn] = useState(false);
+  const [activeProvider, setActiveProvider] = useState<string>('nim-cloud');
+  const [activeModel, setActiveModel] = useState<string>('meta/llama-3.3-70b-instruct');
+  const [hasKey, setHasKey] = useState<boolean>(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const updateActiveInfo = async () => {
+      const data = await chrome.storage.local.get(['activeProviderId', 'selectedModelId']);
+      const pId = (data.activeProviderId as string) || 'nim-cloud';
+      const mId = (data.selectedModelId as string) || 'meta/llama-3.3-70b-instruct';
+      setActiveProvider(pId);
+      setActiveModel(mId);
+
+      const keyData = await chrome.storage.local.get(`keys:${pId}`);
+      const k = keyData[`keys:${pId}`] as { llmApiKey?: string } | undefined;
+      setHasKey(!!(k?.llmApiKey && k.llmApiKey.trim().length > 0) || pId === 'ollama');
+    };
+    void updateActiveInfo();
+
+    const listener = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
+      if (area === 'local') {
+        void updateActiveInfo();
+      }
+    };
+    chrome.storage.onChanged.addListener(listener);
+    return () => chrome.storage.onChanged.removeListener(listener);
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -248,14 +276,35 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 
   return (
     <div className="flex flex-col h-full bg-slate-900 text-slate-100">
-      {/* Running Cost Bar */}
+      {/* Running Cost Bar & Active Provider Pill */}
       <div className="bg-slate-800/80 border-b border-slate-700/60 px-3 py-1.5 text-xs flex items-center justify-between font-mono text-slate-400">
-        <div className="flex items-center gap-1.5">
-          <span className={`inline-block w-2 h-2 rounded-full ${isRunning ? 'bg-brand-500 animate-pulse' : 'bg-slate-500'}`}></span>
-          <span>Task: {costState.taskTokens.toLocaleString()} tok</span>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            <span className={`inline-block w-2 h-2 rounded-full ${isRunning ? 'bg-brand-500 animate-pulse' : 'bg-slate-500'}`}></span>
+            <span>{costState.taskTokens.toLocaleString()} tok</span>
+          </div>
+
+          {/* Clickable Active Provider Pill */}
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-sans transition border ${
+              hasKey
+                ? 'bg-slate-900/90 text-slate-300 border-slate-700 hover:border-brand-500'
+                : 'bg-rose-950/80 text-rose-300 border-rose-600 animate-pulse hover:bg-rose-900'
+            }`}
+            title="Active LLM Provider — click to change in Settings"
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${hasKey ? 'bg-emerald-400' : 'bg-rose-400'}`} />
+            <span className="font-medium text-slate-200">{activeProvider}</span>
+            <span className="opacity-40">/</span>
+            <span className="truncate max-w-[90px]">{activeModel.split('/').pop()}</span>
+            <Settings className="w-2.5 h-2.5 ml-0.5 opacity-60" />
+          </button>
         </div>
+
         <div>
-          <span>Today: ${costState.todayCostUsd.toFixed(3)} ({costState.todayTokens.toLocaleString()} tok)</span>
+          <span>${costState.todayCostUsd.toFixed(3)}</span>
         </div>
       </div>
 
@@ -303,9 +352,21 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                 }`}
               >
                 {m.sender === 'error' && (
-                  <div className="flex items-center gap-1.5 text-xs font-semibold text-rose-400 mb-1">
-                    <AlertCircle className="w-3.5 h-3.5" />
-                    <span>Execution Notice</span>
+                  <div className="flex items-center justify-between gap-1.5 text-xs font-semibold text-rose-400 mb-1">
+                    <div className="flex items-center gap-1.5">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                      <span>Execution Notice</span>
+                    </div>
+                    {/401|invalid api key|no api key|unauthorized/i.test(m.text) && onOpenSettings && (
+                      <button
+                        type="button"
+                        onClick={onOpenSettings}
+                        className="px-2 py-0.5 bg-rose-600 hover:bg-rose-500 text-white rounded text-[11px] font-medium flex items-center gap-1 transition shadow shrink-0"
+                      >
+                        <Settings className="w-3 h-3" />
+                        <span>Fix in Settings</span>
+                      </button>
+                    )}
                   </div>
                 )}
                 {m.sender === 'user' ? (
@@ -341,6 +402,25 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 
       {/* Input / Control Bar */}
       <form onSubmit={handleSend} className="p-3 bg-slate-800/60 border-t border-slate-700/60 flex flex-col gap-2">
+        {!hasKey && (
+          <div className="bg-amber-950/80 border border-amber-600/70 p-2.5 rounded-xl text-xs text-amber-200 flex items-center justify-between animate-in fade-in">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>No API key set for <strong>{activeProvider}</strong>.</span>
+            </div>
+            {onOpenSettings && (
+              <button
+                type="button"
+                onClick={onOpenSettings}
+                className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition shrink-0 ml-2"
+              >
+                <Settings className="w-3 h-3" />
+                <span>Configure Key</span>
+              </button>
+            )}
+          </div>
+        )}
+
         <div className="flex items-center justify-between text-xs px-1 text-slate-400">
           <label className="flex items-center gap-1.5 cursor-pointer hover:text-slate-200 transition">
             <input
