@@ -4,7 +4,8 @@ import {
   Globe, Search, FileText, MousePointer, Keyboard,
   ArrowUpDown, Camera, Loader2, ChevronDown, ChevronRight,
   Zap, Layers, Table, ExternalLink, Sparkles, List, Clock, History, CheckSquare,
-  Download, Code2, Bookmark, Bell,
+  Download, Code2, Bookmark, Bell, Eye, PlayCircle, Database, FolderPlus,
+  Brain, Network, Share2, PlusCircle,
 } from 'lucide-react';
 import { MarkdownMessage } from './MarkdownMessage';
 
@@ -66,6 +67,19 @@ const TOOL_META: Record<string, { icon: React.FC<{ className?: string }>; label:
   create_watch:           { icon: Bell,          label: 'Schedule Monitor', color: 'text-indigo-400' },
   list_watches:           { icon: Bell,          label: 'List Monitors', color: 'text-indigo-300' },
   delete_watch:           { icon: Bell,          label: 'Delete Monitor', color: 'text-rose-400' },
+  observe_page:           { icon: Eye,           label: 'Observe Page',  color: 'text-amber-300' },
+  act_on_element:         { icon: PlayCircle,    label: 'Act On Element', color: 'text-emerald-400' },
+  extract_data:           { icon: Database,      label: 'Extract Data',  color: 'text-cyan-400' },
+  workspace_create_file:  { icon: FolderPlus,    label: 'Create File',   color: 'text-amber-400' },
+  workspace_append_file:  { icon: FileText,      label: 'Append File',   color: 'text-amber-300' },
+  workspace_read_file:    { icon: FileText,      label: 'Read File',     color: 'text-blue-400' },
+  workspace_list_files:   { icon: Layers,        label: 'List Files',    color: 'text-slate-400' },
+  workspace_delete_file:  { icon: X,             label: 'Delete File',   color: 'text-rose-400' },
+  workspace_search:       { icon: Search,        label: 'Search Files',  color: 'text-indigo-400' },
+  knowledge_graph_query:  { icon: Brain,         label: 'Recall Brain',  color: 'text-purple-400' },
+  knowledge_graph_add:    { icon: PlusCircle,    label: 'Save to Brain', color: 'text-emerald-400' },
+  knowledge_graph_relate: { icon: Share2,        label: 'Link Entities', color: 'text-cyan-400' },
+  swarm_research:         { icon: Network,       label: 'Swarm Research', color: 'text-amber-400' },
 };
 
 // ── Step summary: first meaningful arg value ───────────────────────────────────
@@ -74,6 +88,10 @@ function stepSummary(tool: string, args?: Record<string, unknown>): string {
   if (!args) return '';
   if (tool === 'parallel_research' && Array.isArray(args.tasks)) return `${args.tasks.length} parallel background tabs`;
   if (tool === 'recall_session_history') return args.query ? `query: "${String(args.query)}"` : `last ${String(args.last_n ?? 5)} turns`;
+  if (tool === 'knowledge_graph_query' && args.keyword) return `query: "${String(args.keyword)}"`;
+  if (tool === 'knowledge_graph_add' && args.label) return `entity: "${String(args.label)}" [${String(args.type ?? 'concept')}]`;
+  if (tool === 'knowledge_graph_relate' && args.fromLabel && args.toLabel) return `"${String(args.fromLabel)}" →[${String(args.relation ?? 'rel')}]→ "${String(args.toLabel)}"`;
+  if (tool === 'swarm_research' && args.topic) return `topic: "${String(args.topic)}" (${String(args.maxWorkers ?? 3)} tabs)`;
   if (tool === 'fill_form' && Array.isArray(args.fields)) return `${args.fields.length} form fields`;
   if (tool === 'export_data' && args.filename) return `${String(args.filename)} (${String(args.format ?? 'csv')})`;
   if (tool === 'eval_page_script' && args.target) return `target: ${String(args.target)}`;
@@ -90,7 +108,13 @@ function stepSummary(tool: string, args?: Record<string, unknown>): string {
   if (tool === 'wait_for' && args.selector) return `selector: "${String(args.selector)}"`;
   if (tool === 'scroll_page' && args.direction) return `direction: ${String(args.direction)}`;
   if (tool === 'switch_tab' && args.tabId) return `tab: ${String(args.tabId)}`;
-  if (tool === 'extract_table' && args.selector) return `selector: ${String(args.selector)}`;
+  if (tool === 'observe_page') return 'scanning affordances (shadow DOM pierced)';
+  if (tool === 'act_on_element' && args.action && args.target) return `${String(args.action)} on "${String(args.target)}"`;
+  if (tool === 'extract_data' && Array.isArray(args.fields)) return `fields: [${args.fields.join(', ')}]`;
+  if (tool === 'workspace_create_file' && args.path) return `file: ${String(args.path)}`;
+  if (tool === 'workspace_append_file' && args.path) return `append: ${String(args.path)}`;
+  if (tool === 'workspace_read_file' && args.path) return `read: ${String(args.path)}`;
+  if (tool === 'workspace_search' && args.query) return `search: "${String(args.query)}"`;
   const first = Object.values(args)[0];
   return first ? String(first).slice(0, 60) : '';
 }

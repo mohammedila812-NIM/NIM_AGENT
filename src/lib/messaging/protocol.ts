@@ -25,7 +25,21 @@ export type AgentActionType =
   | 'scratchpad_read'
   | 'create_watch'
   | 'list_watches'
-  | 'delete_watch';
+  | 'delete_watch'
+  | 'workspace_create_file'
+  | 'workspace_append_file'
+  | 'workspace_read_file'
+  | 'workspace_list_files'
+  | 'workspace_delete_file'
+  | 'workspace_search'
+  | 'observe_page'
+  | 'act_on_element'
+  | 'extract_data'
+  | 'knowledge_graph_query'
+  | 'knowledge_graph_add'
+  | 'knowledge_graph_relate'
+  | 'swarm_research';
+
 
 export interface AgentAction {
   type: AgentActionType;
@@ -42,12 +56,19 @@ export interface AgentAction {
 }
 
 // Schemas for extension messages
+export const ConversationTurnSchema = z.object({
+  role: z.enum(['user', 'assistant', 'system']),
+  content: z.string(),
+});
+export type ConversationTurn = z.infer<typeof ConversationTurnSchema>;
+
 const AgentStartSchema = z.object({
   type: z.literal('AGENT_START'),
   taskId: z.string(),
   instruction: z.string(),
   modelId: z.string().optional(),
   visionOptIn: z.boolean().optional(),
+  conversationHistory: z.array(ConversationTurnSchema).optional(),
 });
 
 const AgentStopSchema = z.object({

@@ -32,6 +32,25 @@ export {
   executeListWatches,
   executeDeleteWatch,
 } from './watch-tools';
+export {
+  executeWorkspaceCreateFile,
+  executeWorkspaceAppendFile,
+  executeWorkspaceReadFile,
+  executeWorkspaceListFiles,
+  executeWorkspaceDeleteFile,
+  executeWorkspaceSearch,
+} from '../../workspace/workspace-tools';
+export { observePage, formatAffordances } from '../primitives/observe';
+export { actOnElement } from '../primitives/act';
+export { extractStructuredData } from '../primitives/extract';
+export { captureViewportWithMarks } from './set-of-marks';
+export {
+  executeKnowledgeGraphQuery,
+  executeKnowledgeGraphAdd,
+  executeKnowledgeGraphRelate,
+} from '../../knowledge/graph-tools';
+export { runSwarm } from '../swarm/coordinator';
+
 
 /** Tool declarations for OpenAI/NIM function calling specification */
 export const AGENT_TOOLS: Tool[] = [
@@ -67,12 +86,17 @@ export const AGENT_TOOLS: Tool[] = [
     type: 'function',
     function: {
       name: 'click_element',
-      description: 'Click an element or toggle a checkbox/radio by its numeric index (e.g. "1"), CSS selector, or semantic label.',
+      description: 'Click an element or toggle a checkbox/radio by its numeric index (e.g. "1"), CSS selector, or semantic label. Supports coordinate fallback and auto-resolves SVG icon buttons to clickable containers.',
       parameters: {
         type: 'object',
         properties: {
           target: { type: 'string', description: 'Numeric index (e.g. "1"), CSS selector, or text of the element to click.' },
           description: { type: 'string', description: 'Human-readable description of what this click accomplishes.' },
+          coordinates: {
+            type: 'object',
+            properties: { x: { type: 'number' }, y: { type: 'number' } },
+            description: 'Optional viewport coordinates {x, y} to click directly when visual targeting is needed.',
+          },
         },
         required: ['target'],
       },
@@ -82,12 +106,14 @@ export const AGENT_TOOLS: Tool[] = [
     type: 'function',
     function: {
       name: 'type_text',
-      description: 'Type text into an input field or contenteditable element by numeric index or selector.',
+      description: 'Type text into an input field or contenteditable element. Triggers full React/Vue/Angular keyboard lifecycle. Can optionally submit search or login forms immediately with Enter in a single turn.',
       parameters: {
         type: 'object',
         properties: {
           target: { type: 'string', description: 'Numeric index (e.g. "2"), CSS selector, label, or placeholder of the input field.' },
           value: { type: 'string', description: 'The exact text to type into the field.' },
+          submitWithEnter: { type: 'boolean', description: 'If true, immediately sends Enter key and submits form after typing (ideal for search inputs).' },
+          mode: { type: 'string', enum: ['replace', 'append', 'prepend'], description: 'Typing mode: replace existing value (default), append to end, or prepend.' },
         },
         required: ['target', 'value'],
       },
@@ -447,4 +473,222 @@ export const AGENT_TOOLS: Tool[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'workspace_create_file',
+      description: 'Create a new file, document, or code script in the NIM Virtual Workspace (in-browser persistent file system).',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Absolute virtual path, e.g. "/research/ai-report.md" or "/code/script.js".' },
+          content: { type: 'string', description: 'Full text content of the file.' },
+          tags: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Optional tags to categorize this file.',
+          },
+          overwrite: { type: 'boolean', description: 'Whether to overwrite if file already exists (default: true).' },
+        },
+        required: ['path', 'content'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'workspace_append_file',
+      description: 'Append text or findings to an existing file in the NIM Virtual Workspace without overwriting previous content. Creates file if it does not exist.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Absolute virtual path of the file to append to.' },
+          text: { type: 'string', description: 'The text, paragraph, or research notes to append.' },
+        },
+        required: ['path', 'text'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'workspace_read_file',
+      description: 'Read the full text and metadata of a file stored in the NIM Virtual Workspace.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Absolute virtual path of the file to read.' },
+        },
+        required: ['path'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'workspace_list_files',
+      description: 'List all files and folders in a directory of the NIM Virtual Workspace with their sizes and extensions.',
+      parameters: {
+        type: 'object',
+        properties: {
+          directory: { type: 'string', description: 'Directory to list (e.g. "/research", "/code", "/notes", or "/" for root).' },
+          recursive: { type: 'boolean', description: 'If true, lists files in subdirectories too.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'workspace_delete_file',
+      description: 'Delete a file from the NIM Virtual Workspace or move it to /trash/.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Absolute virtual path of the file to delete.' },
+          permanent: { type: 'boolean', description: 'If true, deletes permanently. If false, moves to /trash/.' },
+        },
+        required: ['path'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'workspace_search',
+      description: 'Search for text or keywords across all files in the NIM Virtual Workspace.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'The search keyword or phrase.' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'observe_page',
+      description: 'Discover interactive affordances on the page (actions, input fields, dropdown options) with Shadow DOM piercing. Provides an organized map of interactive controls.',
+      parameters: {
+        type: 'object',
+        properties: {
+          maxAffordances: { type: 'number', description: 'Maximum interactive elements to return (default 75).' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'act_on_element',
+      description: 'Execute an atomic action on an element with automatic scroll-into-view, realistic pointer events, and state change verification (checks if page or values changed).',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['click', 'type', 'select', 'press_key', 'scroll'], description: 'The action to perform.' },
+          target: { type: 'string', description: 'The numeric ID (e.g. "1") or CSS selector of the target element.' },
+          value: { type: 'string', description: 'Text to type (when action is "type").' },
+          option: { type: 'string', description: 'Option text or value to select (when action is "select").' },
+          key: { type: 'string', description: 'Key name (e.g. "Enter", "Tab", "Escape") when action is "press_key".' },
+          direction: { type: 'string', enum: ['up', 'down', 'to_element'], description: 'Scroll direction when action is "scroll".' },
+          submitWithEnter: { type: 'boolean', description: 'If true and action is "type", immediately sends Enter key and submits form after typing.' },
+        },
+        required: ['action', 'target'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'extract_data',
+      description: 'Extract structured data, repeating cards, or tables from the active page matching specific field names into JSON and CSV.',
+      parameters: {
+        type: 'object',
+        properties: {
+          fields: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'List of field names to extract, e.g. ["title", "price", "rating", "url"].',
+          },
+          containerSelector: {
+            type: 'string',
+            description: 'Optional CSS selector for repeating card or row containers, e.g. ".product-card", "tbody tr".',
+          },
+          maxItems: {
+            type: 'number',
+            description: 'Maximum items to extract (default 25).',
+          },
+        },
+        required: ['fields'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'knowledge_graph_query',
+      description: 'Search NIM Brain — the persistent cross-session knowledge graph — for entities, facts, prices, specs, or relationships previously observed during browsing. Use this BEFORE searching the web when the user asks about something you may have researched before.',
+      parameters: {
+        type: 'object',
+        properties: {
+          keyword: { type: 'string', description: 'Keyword or entity name to search for (e.g. "Sony WH-1000XM5", "iPhone price", "OpenAI").' },
+          maxNodes: { type: 'number', description: 'Maximum matching nodes to return (default 10, max 20).' },
+        },
+        required: ['keyword'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'knowledge_graph_add',
+      description: 'Explicitly save an important fact, entity, or finding to the persistent NIM Brain knowledge graph so it can be recalled in future sessions.',
+      parameters: {
+        type: 'object',
+        properties: {
+          label: { type: 'string', description: 'The entity name (e.g. "Sony WH-1000XM5", "Sam Altman").' },
+          type: { type: 'string', enum: ['product', 'person', 'organization', 'location', 'concept', 'price', 'date', 'stat', 'source', 'file', 'unknown'], description: 'Entity category.' },
+          attributes: { type: 'object', description: 'Key-value attributes to store (e.g. { "price": "$279", "rating": "4.8" }).' },
+          sourceUrl: { type: 'string', description: 'URL where this fact was found.' },
+        },
+        required: ['label'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'knowledge_graph_relate',
+      description: 'Save a relationship between two entities in the NIM Brain knowledge graph (e.g. "Sony WH-1000XM5" made_by "Sony").',
+      parameters: {
+        type: 'object',
+        properties: {
+          fromLabel: { type: 'string', description: 'Source entity label.' },
+          fromType: { type: 'string', enum: ['product', 'person', 'organization', 'location', 'concept', 'price', 'date', 'stat', 'source', 'file', 'unknown'] },
+          relation: { type: 'string', description: 'Relationship verb in snake_case (e.g. "made_by", "priced_at", "competes_with", "found_on").' },
+          toLabel: { type: 'string', description: 'Target entity label.' },
+          toType: { type: 'string', enum: ['product', 'person', 'organization', 'location', 'concept', 'price', 'date', 'stat', 'source', 'file', 'unknown'] },
+        },
+        required: ['fromLabel', 'relation', 'toLabel'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'swarm_research',
+      description: 'Launch a parallel multi-tab research swarm: decomposes topic into sub-queries, runs each in a separate background tab simultaneously, then synthesizes a structured comparison report. Ideal for price comparison, multi-source fact checking, and comprehensive topic research.',
+      parameters: {
+        type: 'object',
+        properties: {
+          topic: { type: 'string', description: 'The research topic (e.g. "best wireless headphones under $300", "GPT-4o vs Claude 3.5 Sonnet comparison").' },
+          maxWorkers: { type: 'number', description: 'Max parallel tabs to open (1–4, default 3).' },
+        },
+        required: ['topic'],
+      },
+    },
+  },
 ];
+

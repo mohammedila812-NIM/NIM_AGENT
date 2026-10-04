@@ -13,11 +13,15 @@ export interface SearchResult {
 }
 
 const INJECTION_PATTERNS = [
-  /ignore\s+(all\s+)?(previous|prior)\s+instructions/i,
+  /ignore\s+(all\s+)?(previous|prior|above)\s+instructions/i,
   /system\s+prompt/i,
   /you\s+are\s+now\s+in\s+developer\s+mode/i,
-  /forget\s+(all\s+)?previous\s+rules/i,
+  /forget\s+(all\s+)?(previous|prior)\s+rules/i,
   /exfiltrat/i,
+  /reveal\s+(your\s+)?(system|initial)\s+(prompt|instructions)/i,
+  /bypass\s+safety/i,
+  /do\s+anything\s+now/i,
+  /<\/?(?:untrusted_external_content|PAGE)>/i,
 ];
 
 /** Sanitizes a search snippet to neutralize prompt injection vectors. */

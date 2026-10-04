@@ -4,12 +4,15 @@ export const ClickSchema = z.object({
   tool: z.literal('click_element'),
   target: z.string().min(1, 'target must not be empty'),
   description: z.string().optional(),
+  coordinates: z.object({ x: z.number(), y: z.number() }).optional(),
 });
 
 export const TypeSchema = z.object({
   tool: z.literal('type_text'),
   target: z.string().min(1, 'target must not be empty'),
   value: z.string(),
+  submitWithEnter: z.boolean().optional(),
+  mode: z.enum(['replace', 'append', 'prepend']).optional(),
 });
 
 export const SelectOptionSchema = z.object({
@@ -162,6 +165,95 @@ export const DeleteWatchSchema = z.object({
   watchId: z.string().min(1),
 });
 
+export const WorkspaceCreateFileSchema = z.object({
+  tool: z.literal('workspace_create_file'),
+  path: z.string().min(1, 'path is required'),
+  content: z.string(),
+  tags: z.array(z.string()).optional(),
+  overwrite: z.boolean().optional(),
+});
+
+export const WorkspaceAppendFileSchema = z.object({
+  tool: z.literal('workspace_append_file'),
+  path: z.string().min(1, 'path is required'),
+  text: z.string(),
+});
+
+export const WorkspaceReadFileSchema = z.object({
+  tool: z.literal('workspace_read_file'),
+  path: z.string().min(1, 'path is required'),
+});
+
+export const WorkspaceListFilesSchema = z.object({
+  tool: z.literal('workspace_list_files'),
+  directory: z.string().optional(),
+  recursive: z.boolean().optional(),
+});
+
+export const WorkspaceDeleteFileSchema = z.object({
+  tool: z.literal('workspace_delete_file'),
+  path: z.string().min(1, 'path is required'),
+  permanent: z.boolean().optional(),
+});
+
+export const WorkspaceSearchSchema = z.object({
+  tool: z.literal('workspace_search'),
+  query: z.string().min(1, 'query is required'),
+});
+
+export const ObservePageSchema = z.object({
+  tool: z.literal('observe_page'),
+  maxAffordances: z.number().int().min(1).max(150).optional(),
+});
+
+export const ActOnElementSchema = z.object({
+  tool: z.literal('act_on_element'),
+  action: z.enum(['click', 'type', 'select', 'press_key', 'scroll']),
+  target: z.string().min(1, 'Target ID or selector is required'),
+  value: z.string().optional(),
+  option: z.string().optional(),
+  key: z.string().optional(),
+  direction: z.enum(['up', 'down', 'to_element']).optional(),
+  submitWithEnter: z.boolean().optional(),
+  coordinates: z.object({ x: z.number(), y: z.number() }).optional(),
+});
+
+export const ExtractDataSchema = z.object({
+  tool: z.literal('extract_data'),
+  fields: z.array(z.string().min(1)).min(1, 'At least one field name is required'),
+  containerSelector: z.string().optional(),
+  maxItems: z.number().int().min(1).max(100).optional(),
+});
+
+export const KnowledgeGraphQuerySchema = z.object({
+  tool: z.literal('knowledge_graph_query'),
+  keyword: z.string().min(1, 'keyword must not be empty'),
+  maxNodes: z.number().int().min(1).max(20).optional(),
+});
+
+export const KnowledgeGraphAddSchema = z.object({
+  tool: z.literal('knowledge_graph_add'),
+  label: z.string().min(1, 'label must not be empty'),
+  type: z.enum(['product', 'person', 'organization', 'location', 'concept', 'price', 'date', 'stat', 'source', 'file', 'unknown']).optional(),
+  attributes: z.record(z.string()).optional(),
+  sourceUrl: z.string().optional(),
+});
+
+export const KnowledgeGraphRelateSchema = z.object({
+  tool: z.literal('knowledge_graph_relate'),
+  fromLabel: z.string().min(1),
+  fromType: z.enum(['product', 'person', 'organization', 'location', 'concept', 'price', 'date', 'stat', 'source', 'file', 'unknown']).optional(),
+  relation: z.string().min(1, 'relation must not be empty'),
+  toLabel: z.string().min(1),
+  toType: z.enum(['product', 'person', 'organization', 'location', 'concept', 'price', 'date', 'stat', 'source', 'file', 'unknown']).optional(),
+});
+
+export const SwarmResearchSchema = z.object({
+  tool: z.literal('swarm_research'),
+  topic: z.string().min(3, 'topic must describe what to research'),
+  maxWorkers: z.number().int().min(1).max(4).optional(),
+});
+
 export const ToolCallSchema = z.discriminatedUnion('tool', [
   ClickSchema,
   TypeSchema,
@@ -188,6 +280,19 @@ export const ToolCallSchema = z.discriminatedUnion('tool', [
   CreateWatchSchema,
   ListWatchesSchema,
   DeleteWatchSchema,
+  WorkspaceCreateFileSchema,
+  WorkspaceAppendFileSchema,
+  WorkspaceReadFileSchema,
+  WorkspaceListFilesSchema,
+  WorkspaceDeleteFileSchema,
+  WorkspaceSearchSchema,
+  ObservePageSchema,
+  ActOnElementSchema,
+  ExtractDataSchema,
+  KnowledgeGraphQuerySchema,
+  KnowledgeGraphAddSchema,
+  KnowledgeGraphRelateSchema,
+  SwarmResearchSchema,
 ]);
 
 export type ValidatedToolCall = z.infer<typeof ToolCallSchema>;

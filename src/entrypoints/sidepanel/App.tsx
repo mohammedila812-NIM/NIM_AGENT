@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MessageSquare, ListTodo, BookOpen, Activity, ShieldCheck, Settings, Bell } from 'lucide-react';
+import { MessageSquare, ListTodo, BookOpen, Activity, ShieldCheck, Settings, Bell, HardDrive, Code } from 'lucide-react';
 import { ChatPanel, type ChatMessageItem, type AgentStep } from './components/ChatPanel';
 import { TaskPanel } from './components/TaskPanel';
 import { ResearchPanel } from './components/ResearchPanel';
@@ -7,9 +7,11 @@ import { TracePanel } from './components/TracePanel';
 import { SecurityLog } from './components/SecurityLog';
 import { SettingsPanel } from './components/SettingsPanel';
 import { WatchPanel } from './components/WatchPanel';
+import { WorkspacePanel } from './components/WorkspacePanel';
+import { CodingSpacePanel } from './components/CodingSpacePanel';
 import { getCurrentCostState } from '../../lib/agent/cost-guard';
 
-type Tab = 'chat' | 'trace' | 'tasks' | 'monitors' | 'research' | 'security' | 'settings';
+type Tab = 'chat' | 'trace' | 'workspace' | 'code' | 'tasks' | 'monitors' | 'research' | 'security' | 'settings';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('chat');
@@ -207,11 +209,19 @@ export default function App() {
       },
     ]);
 
+    const history = messages
+      .filter((m) => m.id !== 'welcome' && m.sender !== 'error' && m.text.trim().length > 0)
+      .map((m) => ({
+        role: (m.sender === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
+        content: m.text,
+      }));
+
     chrome.runtime.sendMessage({
       type: 'AGENT_START',
       taskId: id,
       instruction,
       visionOptIn,
+      conversationHistory: history,
     });
   };
 
@@ -266,6 +276,20 @@ export default function App() {
             title="Reasoning Trace"
           >
             <Activity className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => setActiveTab('workspace')}
+            className={`p-1.5 rounded-md transition ${activeTab === 'workspace' ? 'bg-slate-800 text-brand-400' : 'text-slate-400 hover:text-slate-200'}`}
+            title="NIM Workspace (Virtual Files & Notes)"
+          >
+            <HardDrive className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => setActiveTab('code')}
+            className={`p-1.5 rounded-md transition ${activeTab === 'code' ? 'bg-slate-800 text-brand-400' : 'text-slate-400 hover:text-slate-200'}`}
+            title="Coding Space (Editor & Sandbox)"
+          >
+            <Code className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={() => setActiveTab('tasks')}
@@ -327,9 +351,11 @@ export default function App() {
             traceSteps={traceSteps}
           />
         )}
+        {activeTab === 'workspace' && <WorkspacePanel />}
+        {activeTab === 'code' && <CodingSpacePanel />}
         {activeTab === 'tasks' && <TaskPanel onRunMacro={(m) => handleStartTask(m, false)} />}
         {activeTab === 'monitors' && <WatchPanel />}
-        {activeTab === 'research' && <ResearchPanel />}
+        {activeTab === 'research' && <ResearchPanel onOpenWorkspacePath={() => setActiveTab('workspace')} />}
         {activeTab === 'security' && <SecurityLog />}
         {activeTab === 'settings' && <SettingsPanel />}
       </main>

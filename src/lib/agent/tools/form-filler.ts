@@ -85,6 +85,10 @@ export async function executeBatchFormFill(
       }
 
       function setNativeValue(el: HTMLInputElement | HTMLTextAreaElement, value: string): void {
+        const firstChar = value.slice(-1) || 'a';
+        el.dispatchEvent(new KeyboardEvent('keydown', { key: firstChar, code: `Key${firstChar.toUpperCase()}`, bubbles: true }));
+        el.dispatchEvent(new KeyboardEvent('keypress', { key: firstChar, code: `Key${firstChar.toUpperCase()}`, bubbles: true }));
+
         const proto = el instanceof HTMLInputElement ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype;
         const nativeSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
         if (nativeSetter) {
@@ -92,7 +96,14 @@ export async function executeBatchFormFill(
         } else {
           el.value = value;
         }
-        el.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+
+        try {
+          el.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: value }));
+        } catch {
+          el.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+        }
+
+        el.dispatchEvent(new KeyboardEvent('keyup', { key: firstChar, code: `Key${firstChar.toUpperCase()}`, bubbles: true }));
         el.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
       }
 

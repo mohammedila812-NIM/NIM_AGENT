@@ -8,9 +8,11 @@ import type { ProviderConfig } from '../lib/llm/types';
 import { isChatModel, type DiscoveredModel } from '../lib/llm/model-registry';
 import { resetTaskCounters } from '../lib/agent/cost-guard';
 import { saveTask } from '../lib/storage/tasks';
+import { recordTaskCompletion } from '../lib/agent/session-store';
 import { isValidMessage } from '../lib/messaging/protocol';
 import { syncWatchAlarms, loadWatch } from '../lib/storage/watch';
 import { executeWatchCheck } from '../lib/agent/watch-engine';
+import { setupContextMenus } from '../lib/agent/context-menu';
 
 let activeEngine: AgentEngine | null = null;
 const connectedPorts = new Set<chrome.runtime.Port>();
@@ -29,6 +31,7 @@ function broadcast(msg: Record<string, unknown>): void {
 
 export default defineBackground(() => {
   initPortManager();
+  setupContextMenus();
 
   // Handle stream port from sidepanel
   onPort('sidepanel-stream', (port) => {
@@ -93,7 +96,14 @@ export default defineBackground(() => {
     }
 
     if (message.type === 'AGENT_START') {
-      void handleAgentStart(message.taskId, message.instruction, message.modelId, message.visionOptIn);
+      void handleAgentStart(
+        message.taskId,
+        message.instruction,
+        message.modelId,
+        message.visionOptIn,
+        undefined,
+        message.conversationHistory,
+      );
       sendResponse({ status: 'started' });
       return true;
     }
@@ -144,6 +154,7 @@ async function handleAgentStart(
   modelId?: string,
   visionOptIn = false,
   initialCheckpoint?: AgentCheckpoint,
+  conversationHistory?: import('../lib/messaging/protocol').ConversationTurn[],
 ): Promise<void> {
   // Gracefully abort prior activeEngine to prevent concurrency collisions
   if (activeEngine) {
@@ -262,6 +273,7 @@ async function handleAgentStart(
       model,
       visionOptIn,
       costLimits: settings.costLimits,
+      conversationHistory,
     },
     {
       onStep: (stepNumber, reasoning, tool, result) => {
@@ -354,6 +366,7 @@ async function handleAgentStart(
       updatedAt: Date.now(),
       result: finalResult?.trim() || undefined,
     });
+    void recordTaskCompletion(taskId, instruction, finalResult?.trim() || '');
     broadcast({
       type: 'STREAM_DONE',
       taskId,

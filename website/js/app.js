@@ -259,6 +259,62 @@ document.addEventListener('DOMContentLoaded', () => {
         'Sandboxed Chrome storage (never leaves machine)',
         'Zero telemetry, zero tracking, zero third-party logging'
       ]
+    },
+    {
+      id: 'clicker',
+      index: '05',
+      label: 'Indestructible Clicker & Typer ✦ v1.4.1',
+      icon: 'mouse-pointer-click',
+      color: '#df6b48',
+      title: 'Bulletproof Click & Type on Any Web Stack',
+      body: 'Clicks SVG icons, Shadow DOM components, and occluded elements through sticky headers. Full keyboard event pipeline (keydown → keypress → input → keyup → change) makes React, Vue, and Angular controlled-inputs register correctly. submitWithEnter auto-submits search bars.',
+      steps: [
+        'SVG/icon ladder climbs to interactive ancestor automatically',
+        'Occlusion detection — detects & scrolls past sticky headers',
+        'React/Vue/Angular keyboard pipeline — no more silent type failures'
+      ]
+    },
+    {
+      id: 'brain',
+      index: '06',
+      label: 'NIM Brain Knowledge Graph ✦ v1.4.1',
+      icon: 'brain',
+      color: '#7c68b8',
+      title: 'Persistent Cross-Session Memory',
+      body: 'NIM Brain is an IndexedDB-backed knowledge graph that persists entities, specs, prices, and relationships across every browsing session. The agent queries NIM Brain before hitting the web — building a private, growing intelligence layer from your browsing history.',
+      steps: [
+        'knowledge_graph_query checked before every web_search',
+        'Auto-entity extraction passively builds graph from visited pages',
+        'knowledge_graph_relate links entities (product → brand, price, review)'
+      ]
+    },
+    {
+      id: 'swarm',
+      index: '07',
+      label: 'Swarm Research Engine ✦ v1.4.1',
+      icon: 'network',
+      color: '#4a9e8f',
+      title: 'Parallel Multi-Tab Research Swarm',
+      body: 'Spawn 2–4 parallel research workers across different sites simultaneously. Each worker crawls, reads, and reports findings to a shared blackboard. The coordinator synthesizes a unified comparison report — dramatically faster than sequential browsing.',
+      steps: [
+        'Decomposes research topic into 2–4 parallel sub-goals',
+        'Workers publish findings to shared blackboard in real-time',
+        'Coordinator synthesizes executive comparison report automatically'
+      ]
+    },
+    {
+      id: 'perception',
+      index: '08',
+      label: 'Occlusion-Aware DOM Perception ✦ v1.4.1',
+      icon: 'eye',
+      color: '#62877e',
+      title: 'See the Page Like a Human Does',
+      body: 'read_page now annotates every interactive element with its real visibility state: [in-viewport], [below-fold], [occluded] (covered by modal/sticky header), or [disabled]. Embedded iframes are detected and reported. The agent knows exactly what it can and can\'t interact with before touching anything.',
+      steps: [
+        '[in-viewport] / [below-fold] / [above-fold] — real viewport coordinates',
+        '[occluded] — elementFromPoint detects sticky headers & modals',
+        'EMBEDDED IFRAMES section — agent routes to act_on_element automatically'
+      ]
     }
   ];
 

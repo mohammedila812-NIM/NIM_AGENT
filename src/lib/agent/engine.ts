@@ -1,7 +1,7 @@
 import { chatCompletion } from '../llm/client';
 import type { ChatMessage, ProviderConfig, ContentPart } from '../llm/types';
 import type { DiscoveredModel } from '../llm/model-registry';
-import { CHAT_SYSTEM_PROMPT, AGENT_SYSTEM_PROMPT, classifyIntent, formatToolResult } from './prompts';
+import { CHAT_SYSTEM_PROMPT, AGENT_SYSTEM_PROMPT, classifyIntent, formatToolResult, wrapUntrustedContent } from './prompts';
 import { AGENT_TOOLS, validateToolCall, type ValidatedToolCall } from './tools';
 import { sanitizeWithQuarantine, InjectionDetectedError } from './quarantine';
 import { validateAction } from './action-validator';
@@ -14,9 +14,13 @@ import type { SearchConfig } from './tools/web-search';
 import { webSearch } from './tools/web-search';
 import { navigateTo } from './tools/navigator';
 import { captureViewport } from './tools/screenshot';
+import { captureViewportWithMarks } from './tools/set-of-marks';
 import { summarizeContent } from './tools/summarizer';
 import { listTabs, switchTab, closeTab } from './tools/tab-manager';
 import { extractTableFromPage } from './tools/table-extractor';
+import { observePage, formatAffordances } from './primitives/observe';
+import { actOnElement } from './primitives/act';
+import { extractStructuredData } from './primitives/extract';
 import { executeParallelSubagents } from './subagent-runner';
 import { findElement, clickElement, executeClickWithCache, selectOptionElement, pressKeyOnElement } from './tools/clicker';
 import { typeIntoElement, isSensitiveField } from './tools/typer';
@@ -31,12 +35,48 @@ import { exportDataToFile, formatExportResult } from './tools/data-exporter';
 import { inspectPageState, formatInspectedState } from './tools/state-inspector';
 import { executeScratchpadWrite, executeScratchpadRead } from './scratchpad';
 import { executeCreateWatch, executeListWatches, executeDeleteWatch } from './tools/watch-tools';
+import {
+  executeWorkspaceCreateFile,
+  executeWorkspaceAppendFile,
+  executeWorkspaceReadFile,
+  executeWorkspaceListFiles,
+  executeWorkspaceDeleteFile,
+  executeWorkspaceSearch,
+} from '../workspace/workspace-tools';
+import { buildMemoryEnrichedTranscript, type HistoryTurn } from './session-memory';
+import { extractAndStoreEntities } from '../knowledge/entity-extractor';
+import {
+  executeKnowledgeGraphQuery,
+  executeKnowledgeGraphAdd,
+  executeKnowledgeGraphRelate,
+} from '../knowledge/graph-tools';
+import { runSwarm } from './swarm/coordinator';
+
+import {
+  planMilestones,
+  getActiveMilestone,
+  completeMilestone,
+  advanceMilestone,
+  isChecklistComplete,
+  renderChecklist,
+  type MilestoneChecklist,
+} from './triad/planner';
+import {
+  captureSnapshot,
+  validateActionOutcome,
+  type PageSnapshot,
+} from './triad/validator';
+import { executeFallback, detectSecurityChallenge } from './triad/reflector';
+import { flashSpotlight, showCaptchaHUD, removeCaptchaHUD } from './triad/spotlight';
+
 
 export interface AgentRunCallbacks {
   onStep?: (stepNumber: number, reasoning: string, toolCall?: ValidatedToolCall, result?: string) => void;
   onChunk?: (chunk: string) => void;
   onStatusChange?: (status: AgentCheckpoint['status'], detail?: string) => void;
   onHITLRequired?: (action: ValidatedToolCall, reason: string) => Promise<boolean>;
+  /** Fired whenever the milestone checklist is created or updated */
+  onPlanUpdate?: (checklist: MilestoneChecklist) => void;
 }
 
 export interface AgentEngineConfig {
@@ -52,6 +92,9 @@ export interface AgentEngineConfig {
   pinnedTabId?: number;          // if set, all tool handlers target this tab
   initialHostname?: string;      // if set, domain lock is enforced for navigate_to
   toolAllowlist?: string[];      // restrict which AGENT_TOOLS this engine may call
+  conversationHistory?: HistoryTurn[]; // rolling cross-turn session history
+  /** Enable Planner-Actor-Validator triad mode (Phase 2) */
+  triadMode?: boolean;
 }
 
 export class AgentEngine {
@@ -65,6 +108,11 @@ export class AgentEngine {
   private failedDomAttempts = 0;
   private resolvedTabId?: number;
   private recentActionSignatures: string[] = [];
+  // ── Triad state ────────────────────────────────────────────────────────
+  private checklist?: MilestoneChecklist;
+  private lastSnapshot?: PageSnapshot;
+  private captchaActive = false;
+
 
   constructor(
     taskId: string,
@@ -112,25 +160,50 @@ export class AgentEngine {
 
     let transcript: ChatMessage[] = initialCheckpoint
       ? initialCheckpoint.transcript
-      : [
-          { role: 'system', content: isChatMode ? CHAT_SYSTEM_PROMPT : AGENT_SYSTEM_PROMPT },
-          { role: 'user', content: this.instruction },
-        ];
+      : await buildMemoryEnrichedTranscript(
+          this.instruction,
+          isChatMode ? CHAT_SYSTEM_PROMPT : AGENT_SYSTEM_PROMPT,
+          this.config.conversationHistory,
+          this.config.providerConfig,
+          this.config.model.id,
+        );
 
     const actionLog = initialCheckpoint ? initialCheckpoint.actionLog : [];
 
-    // Clear session store for fresh tasks (not resumed checkpoints)
+    // Record task start in session memory
     if (!initialCheckpoint) {
-      void clearSession(this.taskId);
       void recordTaskStart(this.taskId, this.instruction);
     }
 
     this.callbacks.onStatusChange?.('running');
 
+    // ── Triad Initialization (Phase 2) ────────────────────────────────────────
+    // When triadMode is enabled and this is a fresh agent task (not chat, not resumed),
+    // call the Planner to decompose the instruction into milestones before the first LLM step.
+    if (this.config.triadMode && !isChatMode && !initialCheckpoint) {
+      try {
+        this.checklist = await planMilestones(
+          this.instruction,
+          this.config.providerConfig,
+          this.config.model,
+        );
+        advanceMilestone(this.checklist);
+        this.callbacks.onPlanUpdate?.(this.checklist);
+        // Inject the checklist as context into the transcript
+        const checklistContext = `\n\n[TASK PLAN]\n${renderChecklist(this.checklist)}\n\nWork through these milestones in order. After each action, verify the milestone is complete before moving on.`;
+        if (transcript[0]?.role === 'system') {
+          transcript[0] = { role: 'system', content: transcript[0].content + checklistContext };
+        }
+      } catch {
+        // Planner failure is non-fatal — continue without checklist
+      }
+    }
+
     while (currentStep < maxIters && !this.isAborted) {
       currentStep++;
 
       // 1. Memory / Adaptive context compression
+
       transcript = await compressIfNeeded(
         transcript,
         this.config.model,
@@ -209,15 +282,14 @@ export class AgentEngine {
       const isNearLimit = currentStep >= maxIters - 2;
       const shouldUseTools = !isChatMode && this.config.model.supportsTools !== false && !isNearLimit;
 
-      // Only nudge pure research queries (not interactive multi-step tasks) when gathered enough data
+      // When approaching step limit, nudge agent to finalize based on the actual instruction
       let callTranscript = transcript;
-      if (!isChatMode && !hasInteractiveAction && (executedToolCount >= 5 || isNearLimit)) {
+      if (!isChatMode && isNearLimit) {
         callTranscript = [
           ...transcript,
           {
             role: 'user',
-            content:
-              'You have gathered sufficient research data. Please compile and present your final ranked answer now in a clean markdown table with prices and key specs. Do not call any more tools.',
+            content: `[System Notice: Maximum step budget is approaching. Please conclude the user's original task: "${this.instruction}". State the actions completed or provide your answer cleanly without calling further tools.]`,
           },
         ];
       }
@@ -361,18 +433,17 @@ export class AgentEngine {
       if (!toolCalls || toolCalls.length === 0) {
         let cleaned = this.cleanFinalAnswer(textContent);
 
-        // Check if the output is an internal scratchpad / stream-of-consciousness monologue
+        // Check if the output is empty or pure internal scratchpad
         const isMonologue = this.isInternalMonologue(cleaned);
-        const isTooShort = cleaned.length < 25;
+        const isEmpty = cleaned.trim().length === 0;
 
-        // If the model produced a monologue or empty response after tool research:
-        if (!isChatMode && (isMonologue || isTooShort)) {
+        // If the model produced a monologue or completely empty response after tools:
+        if (!isChatMode && (isMonologue || isEmpty)) {
           const toolMessages = transcript.filter(m => m.role === 'tool');
           if (toolMessages.length > 0) {
-            // Post reasoning to trace telemetry
             this.callbacks.onStep?.(currentStep, cleaned || stepReasoning);
 
-            const combinedResearch = toolMessages
+            const combinedToolOutputs = toolMessages
               .map((m) =>
                 typeof m.content === 'string'
                   ? m.content
@@ -385,13 +456,13 @@ export class AgentEngine {
               .slice(0, 10000);
             try {
               cleaned = await summarizeContent(
-                combinedResearch,
-                `Create a clean, well-formatted markdown response for the user (using a table or bullet list with bold highlights, key specs, and prices) answering: "${this.instruction}"`,
+                combinedToolOutputs,
+                `Provide a concise and direct answer to the user's request: "${this.instruction}" based on the actions taken and results above.`,
                 this.config.providerConfig,
                 this.config.quarantineModelId ?? this.config.model.id,
               );
             } catch {
-              cleaned = `Research complete for "${this.instruction}". Please see the active browser page for full details.`;
+              cleaned = `Task completed for: "${this.instruction}".`;
             }
           }
         }
@@ -487,11 +558,93 @@ export class AgentEngine {
 
         // Execute Tool
         let toolResultStr = '';
+        const isBrowserAction = ['click_element', 'type_text', 'navigate_to', 'scroll_page', 'press_key', 'select_option', 'act_on_element'].includes(validTool.tool);
+
         try {
+          // ── Triad: CAPTCHA/2FA Detection before browser actions ──────────
+          if (isBrowserAction && this.config.triadMode) {
+            try {
+              const snapTabId = await this.resolveTabId().catch(() => null);
+              if (snapTabId) {
+                const challenge = await detectSecurityChallenge(snapTabId);
+                if (challenge.detected && !this.captchaActive) {
+                  this.captchaActive = true;
+                  await showCaptchaHUD({ type: challenge.type ?? 'unknown', message: challenge.message ?? 'Security challenge detected. Please solve it to continue.', tabId: snapTabId });
+                  this.callbacks.onStatusChange?.('hitl_waiting', challenge.message ?? 'Security challenge detected. Please solve it manually — NIM Agent will auto-resume.');
+                  // Poll until challenge is cleared (up to 3 minutes)
+                  for (let attempt = 0; attempt < 36; attempt++) {
+                    await new Promise(res => setTimeout(res, 5000));
+                    const recheck = await detectSecurityChallenge(snapTabId);
+                    if (!recheck.detected) break;
+                  }
+                  await removeCaptchaHUD(snapTabId);
+                  this.captchaActive = false;
+                  this.callbacks.onStatusChange?.('running');
+                }
+              }
+            } catch {
+              // CAPTCHA detection is non-fatal
+            }
+          }
+
+          // ── Triad: Snapshot BEFORE browser action ────────────────────────
+          let snapshotBefore: PageSnapshot | undefined;
+          if (isBrowserAction && this.config.triadMode) {
+            try {
+              const snapTabId = await this.resolveTabId().catch(() => null);
+              if (snapTabId) snapshotBefore = await captureSnapshot(snapTabId);
+            } catch { /* non-fatal */ }
+          }
+
+          // ── Spotlight: Flash pulse ring on click/type actions ────────────
+          if (['click_element', 'act_on_element'].includes(validTool.tool) && this.config.triadMode) {
+            const target = (validTool as { selector?: string; target?: string }).selector
+              ?? (validTool as { target?: string }).target;
+            try {
+              const snapTabId = await this.resolveTabId().catch(() => null);
+              if (snapTabId) void flashSpotlight(snapTabId, { selector: target });
+            } catch { /* non-fatal */ }
+          }
+
           toolResultStr = await this.executeTool(validTool);
           this.failedDomAttempts = 0; // Reset failure counter on success
           actionLog.push({ action: { type: validTool.tool, ...rawArgs }, timestamp: Date.now() });
           this.callbacks.onStep?.(currentStep, textContent, validTool, toolResultStr);
+
+          // ── Triad: Validate action outcome ───────────────────────────────
+          if (isBrowserAction && this.config.triadMode && snapshotBefore && this.checklist) {
+            try {
+              const snapTabId = await this.resolveTabId().catch(() => null);
+              if (snapTabId) {
+                const snapshotAfter = await captureSnapshot(snapTabId);
+                const activeMilestone = getActiveMilestone(this.checklist);
+                if (activeMilestone) {
+                  const outcome = await validateActionOutcome(
+                    activeMilestone,
+                    validTool.tool,
+                    snapshotBefore,
+                    snapshotAfter,
+                    this.config.providerConfig,
+                    this.config.model,
+                  );
+                  if (outcome.verdict === 'passed') {
+                    completeMilestone(this.checklist, activeMilestone.id, outcome.evidence);
+                    advanceMilestone(this.checklist);
+                    this.callbacks.onPlanUpdate?.(this.checklist);
+                    if (isChecklistComplete(this.checklist)) {
+                      // All milestones done — append a completion hint to the transcript
+                      transcript.push({ role: 'user', content: `[Plan Complete: All milestones finished. Provide your final answer now.]` });
+                    }
+                  } else if (outcome.verdict === 'unchanged') {
+                    // Self-healing: execute fallback and append feedback to transcript
+                    const fallbackResult = await executeFallback(snapTabId, outcome.suggestion);
+                    const fallbackNote = `[Self-Healing: Action had no effect. Executed fallback "${outcome.suggestion}": ${fallbackResult.note}. Retry or pivot your approach.]`;
+                    toolResultStr = toolResultStr + '\n' + fallbackNote;
+                  }
+                }
+              }
+            } catch { /* validation is non-fatal */ }
+          }
 
           // Write to session store for on-demand recall (skip recall tool itself to avoid recursion)
           if (validTool.tool !== 'recall_session_history') {
@@ -513,6 +666,7 @@ export class AgentEngine {
           const stepText = textContent || `Error executing ${validTool.tool}`;
           this.callbacks.onStep?.(currentStep, stepText, validTool, toolResultStr);
         }
+
 
         // Parse tool result to check for multimodal content
         let toolContent: string | ContentPart[];
@@ -761,17 +915,20 @@ export class AgentEngine {
   /** Detect if output text is an internal thinking monologue rather than user-facing markdown */
   private isInternalMonologue(text: string): boolean {
     const trimmed = text.trim();
-    if (!trimmed) return true;
+    if (!trimmed) return false;
+
+    // Direct user-facing action confirmations are NEVER monologues
+    if (/^(closed|switched|navigated|clicked|completed|done|saved|extracted|found|here|the|yes|no|i have|i've|all)\b/i.test(trimmed)) {
+      return false;
+    }
 
     // Check for thinking keywords & scratchpad patterns
     const scratchpadPatterns = [
       /^(we have a list|need to extract|let's gather|let's open|let's check|we need to|we can try to|not sure price|could be time-consuming)/i,
-      /\b(let's open|use navigate_to|we need to read the page|let's gather more details|maybe above|not sure price)\b/i,
-      /^(i think|i will|let me|we should|first let's)\b/i,
+      /\b(use navigate_to|we need to read the page|let's gather more details|maybe above)\b/i,
     ];
 
     const hasScratchpadPattern = scratchpadPatterns.some(p => p.test(trimmed));
-    // If it has markdown table pipes or clear markdown headers, it's structured
     const hasTableStructure = trimmed.includes('|') && trimmed.includes('\n|');
     const hasHeaderStructure = /^#{1,4}\s+/m.test(trimmed);
 
@@ -782,7 +939,15 @@ export class AgentEngine {
   private async executeTool(tool: ValidatedToolCall): Promise<string> {
     switch (tool.tool) {
       case 'web_search': {
-        return await webSearch(tool.query, this.config.searchConfig);
+        const result = await webSearch(tool.query, this.config.searchConfig);
+        // ── Passive knowledge extraction (fire-and-forget) ─────────────────
+        void extractAndStoreEntities(
+          result,
+          `search:${tool.query}`,
+          this.config.providerConfig,
+          this.config.model.id,
+        );
+        return result;
       }
 
       case 'navigate_to': {
@@ -821,8 +986,8 @@ export class AgentEngine {
       case 'screenshot': {
         const snapTabId = await this.resolveTabId();
         await fxFlash(snapTabId);
-        const dataUrl = await captureViewport();
-        return `[IMAGE_DATA:${dataUrl}] Captured viewport screenshot. Visual context enabled.`;
+        const dataUrl = await captureViewportWithMarks(snapTabId);
+        return `[IMAGE_DATA:${dataUrl}] Captured viewport screenshot with Set-of-Marks numerical badges. Visual context enabled.`;
       }
 
       case 'read_page': {
@@ -933,6 +1098,30 @@ export class AgentEngine {
                 if (options.length > 0) parts.push(`options=[${options.map(o => `"${o}"`).join(',')}]`);
               }
 
+              // Viewport position & occlusion check
+              const rect = el.getBoundingClientRect();
+              const inViewport = rect.top < window.innerHeight && rect.bottom > 0 && rect.left < window.innerWidth && rect.right > 0;
+              if (inViewport) {
+                parts.push('[in-viewport]');
+                const cx = rect.left + rect.width / 2;
+                const cy = rect.top + rect.height / 2;
+                if (cx >= 0 && cx <= window.innerWidth && cy >= 0 && cy <= window.innerHeight) {
+                  const topEl = document.elementFromPoint(cx, cy);
+                  if (topEl && topEl !== el && !el.contains(topEl) && !topEl.contains(el)) {
+                    parts.push('[occluded]');
+                  }
+                }
+              } else if (rect.top >= window.innerHeight) {
+                parts.push('[below-fold]');
+              } else if (rect.bottom <= 0) {
+                parts.push('[above-fold]');
+              }
+
+              // Disabled check
+              if ((el as HTMLButtonElement | HTMLInputElement).disabled || el.getAttribute('aria-disabled') === 'true') {
+                parts.push('[disabled]');
+              }
+
               const kind = tag === 'a' ? 'link' : tag === 'input' ? `input[${inputEl.type || 'text'}]` : tag;
               el.setAttribute('data-nim-id', String(idx));
               interactive.push({ index: idx, kind, meta: parts.join(' ') });
@@ -945,6 +1134,17 @@ export class AgentEngine {
               .slice(0, 10)
               .map(a => ({ text: a.textContent?.trim().slice(0, 40) || '', href: (a as HTMLAnchorElement).href }));
 
+            // Detect embedded iframes
+            const iframes = Array.from(document.querySelectorAll('iframe'))
+              .filter(isVisible)
+              .slice(0, 5)
+              .map(f => {
+                const title = f.getAttribute('title') || f.name || f.id || 'embedded-frame';
+                let srcHost = 'same-origin';
+                try { srcHost = new URL(f.src, window.location.href).hostname; } catch { /* ignore */ }
+                return `${title} (${srcHost})`;
+              });
+
             return {
               title: document.title,
               url: window.location.href,
@@ -952,6 +1152,7 @@ export class AgentEngine {
               content: lines.join('\n'),
               interactive,
               links,
+              iframes,
             };
           },
         });
@@ -991,6 +1192,8 @@ export class AgentEngine {
           .map((l: { text: string; href: string }) => `  - "${l.text}" → ${l.href}`)
           .join('\n');
 
+        const iframeLines = (page.iframes || []).map((f: string) => `  - ${f}`).join('\n');
+
         // Check if Vision Fallback should trigger (sparse DOM or previous action failures)
         let imagePrefix = '';
         if (
@@ -998,7 +1201,7 @@ export class AgentEngine {
           (this.config.model.supportsVision || this.config.visionOptIn)
         ) {
           try {
-            const dataUrl = await captureViewport();
+            const dataUrl = await captureViewportWithMarks(tabId);
             imagePrefix = `[IMAGE_DATA:${dataUrl}] `;
           } catch {
             // ignore screenshot error
@@ -1017,9 +1220,20 @@ export class AgentEngine {
           `─────────────────────────────────`,
           `LINKS (${page.links.length}):`,
           linkLines || '  (none)',
+          page.iframes && page.iframes.length > 0
+            ? `─────────────────────────────────\nEMBEDDED IFRAMES (${page.iframes.length}):\n${iframeLines}`
+            : '',
         ].filter(Boolean).join('\n');
 
-        return `${imagePrefix}${output}`;
+        const wrapped = wrapUntrustedContent(output, page.url);
+        // ── Passive knowledge extraction (fire-and-forget) ─────────────────
+        void extractAndStoreEntities(
+          sanitizedContent,
+          page.url,
+          this.config.providerConfig,
+          this.config.model.id,
+        );
+        return `${imagePrefix}${wrapped}`;
       }
 
       case 'click_element': {
@@ -1030,32 +1244,49 @@ export class AgentEngine {
         // Single atomic operation: resolve → check destructive keywords → click
         const results = await chrome.scripting.executeScript({
           target: { tabId },
-          func: (targetStr: string, destructiveKeywords: string[]) => {
-            const trimmed = targetStr.trim();
-            const numMatch = trimmed.match(/^\[?(\d+)\]?$/) || trimmed.match(/^id:(\d+)$/);
+          func: (targetStr: string, destructiveKeywords: string[], coords?: { x: number; y: number }) => {
             let el: HTMLElement | null = null;
+            if (coords) {
+              el = document.elementFromPoint(coords.x, coords.y) as HTMLElement | null;
+            }
 
-            if (numMatch) {
-              el = document.querySelector<HTMLElement>(`[data-nim-id="${numMatch[1]}"]`);
-            }
             if (!el) {
-              try {
-                el = document.querySelector<HTMLElement>(trimmed);
-              } catch { /* ignore */ }
-            }
-            if (!el) {
-              const all = Array.from(document.querySelectorAll<HTMLElement>('button, a, input, select, textarea, [role="button"], [role="link"], [role="tab"], [role="menuitem"], [role="option"], [tabindex]:not([tabindex="-1"])'));
-              const lower = trimmed.toLowerCase();
-              el = all.find((e) =>
-                (e.textContent ?? '').toLowerCase().includes(lower) ||
-                (e.getAttribute('aria-label') ?? '').toLowerCase().includes(lower) ||
-                (e.getAttribute('title') ?? '').toLowerCase().includes(lower) ||
-                ((e as HTMLInputElement).placeholder ?? '').toLowerCase().includes(lower) ||
-                ((e as HTMLInputElement).name ?? '').toLowerCase().includes(lower)
-              ) ?? null;
+              const trimmed = targetStr.trim();
+              const numMatch = trimmed.match(/^\[?(\d+)\]?$/) || trimmed.match(/^id:(\d+)$/);
+
+              if (numMatch) {
+                el = document.querySelector<HTMLElement>(`[data-nim-id="${numMatch[1]}"]`);
+              }
+              if (!el) {
+                try {
+                  el = document.querySelector<HTMLElement>(trimmed);
+                } catch { /* ignore */ }
+              }
+              if (!el) {
+                const all = Array.from(document.querySelectorAll<HTMLElement>('button, a, input, select, textarea, [role="button"], [role="link"], [role="tab"], [role="menuitem"], [role="option"], summary, [tabindex]:not([tabindex="-1"])'));
+                const lower = trimmed.toLowerCase();
+                el = all.find((e) =>
+                  (e.textContent ?? '').toLowerCase().includes(lower) ||
+                  (e.getAttribute('aria-label') ?? '').toLowerCase().includes(lower) ||
+                  (e.getAttribute('title') ?? '').toLowerCase().includes(lower) ||
+                  ((e as HTMLInputElement).placeholder ?? '').toLowerCase().includes(lower) ||
+                  ((e as HTMLInputElement).name ?? '').toLowerCase().includes(lower)
+                ) ?? null;
+              }
             }
 
             if (!el) return { success: false, error: `Could not locate element: "${targetStr}"` };
+
+            // Container resolution (SVG/path/span -> button/a)
+            const container = el.closest('button, a, [role="button"], [role="link"], [role="tab"], [role="menuitem"], [role="option"], summary, [tabindex]:not([tabindex="-1"])') as HTMLElement | null;
+            if (container) {
+              el = container;
+            }
+
+            // Disabled state check
+            if ((el as HTMLButtonElement | HTMLInputElement).disabled || el.getAttribute('aria-disabled') === 'true') {
+              return { success: false, error: `ELEMENT_DISABLED: Element <${el.tagName.toLowerCase()}> is disabled or aria-disabled="true".` };
+            }
 
             const fingerprint = {
               tag: el.tagName.toLowerCase(),
@@ -1094,6 +1325,15 @@ export class AgentEngine {
               el.scrollIntoView({ block: 'center', inline: 'center' });
             } catch { /* fallback */ }
 
+            // Occlusion check: if element is covered by sticky header or modal, offset scroll slightly
+            const rect = el.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) {
+              const topEl = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+              if (topEl && topEl !== el && !el.contains(topEl) && !topEl.contains(el)) {
+                window.scrollBy(0, -90);
+              }
+            }
+
             el.focus();
 
             if (el instanceof HTMLInputElement && (el.type === 'checkbox' || el.type === 'radio')) {
@@ -1111,7 +1351,7 @@ export class AgentEngine {
 
             return { success: true };
           },
-          args: [tool.target, [...DESTRUCTIVE_KEYWORDS]],
+          args: [tool.target, [...DESTRUCTIVE_KEYWORDS], tool.coordinates],
         });
 
         const res = results[0]?.result;
@@ -1229,7 +1469,7 @@ export class AgentEngine {
 
         const results = await chrome.scripting.executeScript({
           target: { tabId },
-          func: (targetStr: string, textToType: string) => {
+          func: (targetStr: string, textToType: string, submitWithEnter?: boolean, mode?: 'replace' | 'append' | 'prepend') => {
             const trimmed = targetStr.trim();
             const numMatch = trimmed.match(/^\[?(\d+)\]?$/) || trimmed.match(/^id:(\d+)$/);
             let el: HTMLElement | null = null;
@@ -1277,37 +1517,72 @@ export class AgentEngine {
 
             el.focus();
 
+            const firstChar = textToType.slice(-1) || 'a';
+            el.dispatchEvent(new KeyboardEvent('keydown', { key: firstChar, code: `Key${firstChar.toUpperCase()}`, bubbles: true }));
+            el.dispatchEvent(new KeyboardEvent('keypress', { key: firstChar, code: `Key${firstChar.toUpperCase()}`, bubbles: true }));
+
             if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
-              el.value = '';
+              let finalVal = textToType;
+              if (mode === 'append') {
+                finalVal = (el.value || '') + textToType;
+              } else if (mode === 'prepend') {
+                finalVal = textToType + (el.value || '');
+              } else {
+                el.value = '';
+              }
+
               const proto = el instanceof HTMLInputElement ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype;
               const nativeSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
               if (nativeSetter) {
-                nativeSetter.call(el, textToType);
+                nativeSetter.call(el, finalVal);
               } else {
-                el.value = textToType;
+                el.value = finalVal;
               }
-              el.dispatchEvent(new Event('input', { bubbles: true }));
+
+              try {
+                el.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: textToType }));
+              } catch {
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+              }
+              el.dispatchEvent(new KeyboardEvent('keyup', { key: firstChar, code: `Key${firstChar.toUpperCase()}`, bubbles: true }));
               el.dispatchEvent(new Event('change', { bubbles: true }));
-              return { success: true };
-            }
-
-            if (el.isContentEditable) {
-              el.focus();
-              document.execCommand('selectAll', false);
+            } else if (el.isContentEditable) {
+              if (mode !== 'append') {
+                document.execCommand('selectAll', false);
+              }
               document.execCommand('insertText', false, textToType);
-              return { success: true };
+              el.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: textToType }));
+              el.dispatchEvent(new KeyboardEvent('keyup', { key: firstChar, code: `Key${firstChar.toUpperCase()}`, bubbles: true }));
+            } else {
+              return { success: false, error: 'Target was not a supported input or textarea' };
             }
 
-            return { success: false, error: 'Target was not a supported input or textarea' };
+            if (submitWithEnter) {
+              const enterProps = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true };
+              el.dispatchEvent(new KeyboardEvent('keydown', enterProps));
+              el.dispatchEvent(new KeyboardEvent('keypress', enterProps));
+              el.dispatchEvent(new KeyboardEvent('keyup', enterProps));
+              const form = (el as HTMLInputElement).form || el.closest('form');
+              if (form) {
+                if (typeof form.requestSubmit === 'function') {
+                  try { form.requestSubmit(); } catch { form.dispatchEvent(new Event('submit', { bubbles: true })); }
+                } else {
+                  form.dispatchEvent(new Event('submit', { bubbles: true }));
+                }
+              }
+            }
+
+            return { success: true };
           },
-          args: [tool.target, tool.value],
+          args: [tool.target, tool.value, tool.submitWithEnter, tool.mode],
         });
 
         const res = results[0]?.result;
         if (!res?.success) return `Failed: ${res?.error}`;
 
         const freshSnapshot = await this.autoSnapshotAfterAction(tabId);
-        return `Typed "${tool.value}" into "${tool.target}".${freshSnapshot}`;
+        const submitSuffix = tool.submitWithEnter ? ' and submitted form with Enter' : '';
+        return `Typed "${tool.value}" into "${tool.target}"${submitSuffix}.${freshSnapshot}`;
       }
 
       case 'select_option': {
@@ -1533,7 +1808,8 @@ export class AgentEngine {
           console.warn('Quarantine check failed for table, using original:', err);
         }
         
-        return `EXTRACTED TABLE (${res.rowCount} rows):\nHeaders: ${res.headers.join(', ')}\n\nCSV DATA:\n${sanitizedCsv}`;
+        const tableOutput = `EXTRACTED TABLE (${res.rowCount} rows):\nHeaders: ${res.headers.join(', ')}\n\nCSV DATA:\n${sanitizedCsv}`;
+        return wrapUntrustedContent(tableOutput, pageUrl);
       }
 
       case 'parallel_research': {
@@ -1689,6 +1965,118 @@ export class AgentEngine {
       case 'delete_watch': {
         return await executeDeleteWatch(tool.watchId);
       }
+
+      case 'workspace_create_file': {
+        return await executeWorkspaceCreateFile(tool.path, tool.content, tool.tags, tool.overwrite);
+      }
+
+      case 'workspace_append_file': {
+        return await executeWorkspaceAppendFile(tool.path, tool.text);
+      }
+
+      case 'workspace_read_file': {
+        return await executeWorkspaceReadFile(tool.path);
+      }
+
+      case 'workspace_list_files': {
+        return await executeWorkspaceListFiles(tool.directory, tool.recursive);
+      }
+
+      case 'workspace_delete_file': {
+        return await executeWorkspaceDeleteFile(tool.path, tool.permanent);
+      }
+
+      case 'workspace_search': {
+        return await executeWorkspaceSearch(tool.query);
+      }
+
+      case 'observe_page': {
+        const tabId = await this.resolveTabId();
+        const affordances = await observePage(tabId, tool.maxAffordances);
+        const summary = formatAffordances(affordances);
+        return wrapUntrustedContent(summary, affordances.url);
+      }
+
+      case 'act_on_element': {
+        const tabId = await this.resolveTabId();
+        const res = await actOnElement(tabId, {
+          action: tool.action,
+          target: tool.target,
+          value: tool.value,
+          option: tool.option,
+          key: tool.key,
+          direction: tool.direction,
+          submitWithEnter: tool.submitWithEnter,
+          coordinates: tool.coordinates,
+        });
+        if (!res.success) {
+          return `Action failed: ${res.error || res.details}`;
+        }
+        return `Action succeeded: ${res.details} (Current URL: ${res.resultingUrl})`;
+      }
+
+      case 'extract_data': {
+        const tabId = await this.resolveTabId();
+        const tab = await chrome.tabs.get(tabId);
+        const pageUrl = tab.url || 'unknown';
+        const res = await extractStructuredData(tabId, {
+          fields: tool.fields,
+          containerSelector: tool.containerSelector,
+          maxItems: tool.maxItems,
+        });
+        const summary = `EXTRACTED DATA (${res.totalFound} items matching [${tool.fields.join(', ')}]):\n\nCSV FORMAT:\n${res.csv}`;
+        // ── Passive knowledge extraction (fire-and-forget) ─────────────────
+        void extractAndStoreEntities(
+          summary,
+          pageUrl,
+          this.config.providerConfig,
+          this.config.model.id,
+        );
+        return wrapUntrustedContent(summary, pageUrl);
+      }
+
+      case 'knowledge_graph_query': {
+        return executeKnowledgeGraphQuery({
+          keyword: tool.keyword,
+          maxNodes: tool.maxNodes,
+        });
+      }
+
+      case 'knowledge_graph_add': {
+        return executeKnowledgeGraphAdd({
+          label: tool.label,
+          type: tool.type,
+          attributes: tool.attributes as Record<string, string> | undefined,
+          sourceUrl: tool.sourceUrl,
+        });
+      }
+
+      case 'knowledge_graph_relate': {
+        return executeKnowledgeGraphRelate({
+          fromLabel: tool.fromLabel,
+          fromType: tool.fromType,
+          relation: tool.relation,
+          toLabel: tool.toLabel,
+          toType: tool.toType,
+        });
+      }
+
+      case 'swarm_research': {
+        this.callbacks.onStatusChange?.('running', `🕸️ Launching parallel research swarm for: "${tool.topic}"…`);
+        const swarmResult = await runSwarm({
+          topic: tool.topic,
+          providerConfig: this.config.providerConfig,
+          model: this.config.model,
+          workerModel: this.config.workerModel,
+          maxWorkers: tool.maxWorkers ?? 3,
+          workerTimeoutMs: 30_000,
+        });
+        const workerSummary = swarmResult.subResults
+          .map(r => `• **${r.name}** (${r.url}): ${r.error ? `❌ ${r.error}` : '✅ completed'}`)
+          .join('\n');
+        return `## 🕸️ Swarm Research: "${swarmResult.topic}"\n\n**Sources checked:**\n${workerSummary}\n\n**Duration:** ${(swarmResult.durationMs / 1000).toFixed(1)}s\n\n---\n\n${swarmResult.synthesis}`;
+      }
     }
   }
 }
+
