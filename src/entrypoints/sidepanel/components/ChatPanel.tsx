@@ -233,7 +233,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   const [input, setInput] = useState('');
   const [visionOptIn, setVisionOptIn] = useState(false);
   const [activeProvider, setActiveProvider] = useState<string>('nim-cloud');
-  const [activeModel, setActiveModel] = useState<string>('meta/llama-3.3-70b-instruct');
+  const [activeModel, setActiveModel] = useState<string>('meta/llama-3.2-11b-vision-instruct');
   const [hasKey, setHasKey] = useState<boolean>(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 

@@ -6,8 +6,8 @@ import { discoverModels, sortModelsForDisplay, isChatModel, type DiscoveredModel
 import { DEFAULT_LIMITS, resetDailyCounters, type CostLimits } from '../../../lib/agent/cost-guard';
 
 export const PROVIDER_DEFAULT_MODELS: Record<string, string> = {
-  'nim-cloud':  'meta/llama-3.3-70b-instruct',
-  'nim-local':  'meta/llama-3.3-70b-instruct',
+  'nim-cloud':  'meta/llama-3.2-11b-vision-instruct',
+  'nim-local':  'meta/llama-3.2-11b-vision-instruct',
   'gemini':     'gemini-2.0-flash',
   'openai':     'gpt-4o-mini',
   'groq':       'llama-3.3-70b-versatile',
@@ -23,7 +23,7 @@ export const SettingsPanel: React.FC = () => {
   const [searchApiKey, setSearchApiKey] = useState('');
   const [searchProvider, setSearchProvider] = useState<'brave' | 'serper'>('brave');
   const [models, setModels] = useState<DiscoveredModel[]>([]);
-  const [selectedModelId, setSelectedModelId] = useState('meta/llama-3.3-70b-instruct');
+  const [selectedModelId, setSelectedModelId] = useState('meta/llama-3.2-11b-vision-instruct');
   const [costLimits, setCostLimits] = useState<CostLimits>(DEFAULT_LIMITS);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);

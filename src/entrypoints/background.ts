@@ -227,8 +227,8 @@ async function handleAgentStart(
 
   // Provider-aware default model: each provider has a sane default
   const PROVIDER_DEFAULT_MODELS: Record<string, string> = {
-    'nim-cloud':  'meta/llama-3.3-70b-instruct',
-    'nim-local':  'meta/llama-3.3-70b-instruct',
+    'nim-cloud':  'meta/llama-3.2-11b-vision-instruct',
+    'nim-local':  'meta/llama-3.2-11b-vision-instruct',
     'gemini':     'gemini-2.0-flash',
     'openai':     'gpt-4o-mini',
     'groq':       'llama-3.3-70b-versatile',
@@ -237,8 +237,8 @@ async function handleAgentStart(
     'custom':     'gpt-4o-mini',
   };
 
-  if (!chosenModelId || !isChatModel(chosenModelId)) {
-    chosenModelId = PROVIDER_DEFAULT_MODELS[providerId] ?? 'meta/llama-3.3-70b-instruct';
+  if (!chosenModelId || !isChatModel(chosenModelId) || chosenModelId === 'meta/llama-3.3-70b-instruct') {
+    chosenModelId = PROVIDER_DEFAULT_MODELS[providerId] ?? 'meta/llama-3.2-11b-vision-instruct';
   }
 
   const model: DiscoveredModel = settings.selectedModel && isChatModel(settings.selectedModel.id)
