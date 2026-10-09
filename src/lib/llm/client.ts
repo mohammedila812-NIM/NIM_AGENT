@@ -138,21 +138,32 @@ export async function chatCompletion(
 
       if (!res.ok) {
         const text = await res.text();
-        if (res.status === 403 && (config.id === 'ollama' || config.baseUrl.includes('11434'))) {
+        if (res.status === 403) {
+          if (config.id === 'ollama' || config.baseUrl.includes('11434')) {
+            throw new Error(
+              `Ollama 403 Forbidden: Ollama blocks browser extension requests by default. To fix, set environment variable OLLAMA_ORIGINS="*" and restart Ollama.`
+            );
+          }
           throw new Error(
-            `Ollama 403 Forbidden: Ollama blocks browser extension requests by default. To fix, set environment variable OLLAMA_ORIGINS="*" and restart Ollama.`
+            `API error (403 Forbidden): Authorization failed for provider "${config.label}". Please check your API key permissions in Settings. Response: ${text}`
           );
         }
 
         if (res.status === 401) {
           throw new Error(
-            `API error (401 Unauthorized): Invalid API key for provider "${config.label}". Please verify your API key in Settings (gear icon) and click "Save Configuration". Response: ${text}`
+            `API error (401 Unauthorized): Invalid API key for provider "${config.label}". Please verify your API key in Settings (gear icon) and click "Save Key & Activate". Response: ${text}`
           );
         }
 
         if (res.status === 404) {
           throw new Error(
             `API error (404 Not Found): Model "${body.model}" or endpoint not found for provider "${config.label}". Please check your model in Settings. Response: ${text}`
+          );
+        }
+
+        if (res.status === 410) {
+          throw new Error(
+            `API error (410 Model Retired): Model "${body.model}" has reached end-of-life on "${config.label}". Please switch to an active model (e.g. meta/llama-3.2-11b-vision-instruct) in Settings. Response: ${text}`
           );
         }
 

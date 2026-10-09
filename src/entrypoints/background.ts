@@ -219,7 +219,7 @@ async function handleAgentStart(
   const providerConfig: ProviderConfig = {
     id: providerId,
     label: preset?.label ?? 'Provider',
-    baseUrl: settings.customBaseUrl || preset?.baseUrl || 'https://integrate.api.nvidia.com/v1',
+    baseUrl: (providerId === 'custom' && settings.customBaseUrl) ? settings.customBaseUrl : (preset?.baseUrl || 'https://integrate.api.nvidia.com/v1'),
     apiKey: keys.llmApiKey,
   };
 
@@ -241,23 +241,26 @@ async function handleAgentStart(
     chosenModelId = PROVIDER_DEFAULT_MODELS[providerId] ?? 'meta/llama-3.2-11b-vision-instruct';
   }
 
-  const model: DiscoveredModel = settings.selectedModel && isChatModel(settings.selectedModel.id)
-    ? settings.selectedModel
-    : {
-        id: chosenModelId,
-        contextLength: 128_000,
-        supportsTools: true,
-        supportsVision: false,
-        isAgentTuned: true,
-        providerLabel: providerConfig.label,
-      };
+  const model: DiscoveredModel =
+    settings.selectedModel &&
+    isChatModel(settings.selectedModel.id) &&
+    settings.selectedModel.id === chosenModelId
+      ? settings.selectedModel
+      : {
+          id: chosenModelId,
+          contextLength: chosenModelId.includes('gemini') ? 1_000_000 : 128_000,
+          supportsTools: true,
+          supportsVision: chosenModelId.includes('vision'),
+          isAgentTuned: true,
+          providerLabel: providerConfig.label,
+        };
 
   const workerConfig = await loadWorkerConfig();
   const workerPreset = workerConfig?.providerId ? getPreset(workerConfig.providerId) : undefined;
   const workerProviderConfig: ProviderConfig | undefined = workerConfig?.apiKey ? {
     id: workerConfig.providerId || 'nim-cloud',
     label: workerPreset?.label ?? 'Worker',
-    baseUrl: workerConfig.baseUrl || workerPreset?.baseUrl || 'https://integrate.api.nvidia.com/v1',
+    baseUrl: (workerConfig.providerId === 'custom' && workerConfig.baseUrl) ? workerConfig.baseUrl : (workerPreset?.baseUrl || 'https://integrate.api.nvidia.com/v1'),
     apiKey: workerConfig.apiKey,
   } : undefined;
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Key, Globe, Cpu, DollarSign, Save, Check, RefreshCw, Shield, AlertTriangle, Sparkles } from 'lucide-react';
+import { Settings, Key, Globe, Cpu, DollarSign, Save, Check, RefreshCw, Shield, AlertTriangle, Sparkles, Eye, EyeOff, Zap } from 'lucide-react';
 import { PROVIDER_PRESETS } from '../../../lib/llm/providers';
 import { saveProviderKeys, loadProviderKeys, saveWorkerConfig, loadWorkerConfig } from '../../../lib/storage/secure';
 import { discoverModels, sortModelsForDisplay, isChatModel, type DiscoveredModel } from '../../../lib/llm/model-registry';
@@ -20,6 +20,8 @@ export const SettingsPanel: React.FC = () => {
   const [providerId, setProviderId] = useState('nim-cloud');
   const [customBaseUrl, setCustomBaseUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [testStatus, setTestStatus] = useState<{ status: 'idle' | 'testing' | 'success' | 'error'; message: string }>({ status: 'idle', message: '' });
   const [searchApiKey, setSearchApiKey] = useState('');
   const [searchProvider, setSearchProvider] = useState<'brave' | 'serper'>('brave');
   const [models, setModels] = useState<DiscoveredModel[]>([]);
@@ -119,12 +121,53 @@ export const SettingsPanel: React.FC = () => {
   const handleProviderChange = async (newId: string) => {
     setProviderId(newId);
     setModels([]);
+    setTestStatus({ status: 'idle', message: '' });
     // Auto-update model to the provider's default model
-    setSelectedModelId(PROVIDER_DEFAULT_MODELS[newId] ?? 'meta/llama-3.3-70b-instruct');
+    setSelectedModelId(PROVIDER_DEFAULT_MODELS[newId] ?? 'meta/llama-3.2-11b-vision-instruct');
     // Eagerly load the stored key for the newly selected provider
     const saved = await loadProviderKeys(newId);
     setApiKey(saved?.llmApiKey ?? '');
     if (saved?.searchApiKey) setSearchApiKey(saved.searchApiKey);
+  };
+
+  const handleTestApiKey = async () => {
+    const cleanKey = apiKey.trim();
+    if (!cleanKey && providerId !== 'ollama') {
+      setTestStatus({ status: 'error', message: 'Please enter an API key first.' });
+      return;
+    }
+    setTestStatus({ status: 'testing', message: 'Testing connection to provider...' });
+    try {
+      const preset = PROVIDER_PRESETS.find((p) => p.id === providerId);
+      const baseUrl = (providerId === 'custom' && customBaseUrl.trim()) ? customBaseUrl.trim() : preset?.baseUrl || 'https://integrate.api.nvidia.com/v1';
+      const testModel = selectedModelId || PROVIDER_DEFAULT_MODELS[providerId] || 'meta/llama-3.2-11b-vision-instruct';
+
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (cleanKey && providerId !== 'ollama') {
+        headers['Authorization'] = `Bearer ${cleanKey}`;
+      }
+
+      const res = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          model: testModel,
+          messages: [{ role: 'user', content: 'Say OK' }],
+          max_tokens: 5,
+        }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        setTestStatus({ status: 'error', message: `HTTP ${res.status}: ${text.slice(0, 160)}` });
+      } else {
+        const json = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+        const reply = json.choices?.[0]?.message?.content?.trim() || 'OK';
+        setTestStatus({ status: 'success', message: `Connected successfully! Model responded: "${reply}"` });
+      }
+    } catch (err: unknown) {
+      setTestStatus({ status: 'error', message: `Network error: ${err instanceof Error ? err.message : String(err)}` });
+    }
   };
 
   const handleSave = async (e?: React.FormEvent) => {
@@ -153,14 +196,14 @@ export const SettingsPanel: React.FC = () => {
       id: selectedModelId,
       contextLength: selectedModelId.includes('gemini') ? 1_000_000 : 128_000,
       supportsTools: true,
-      supportsVision: false,
+      supportsVision: selectedModelId.includes('vision'),
       isAgentTuned: true,
       providerLabel: providerId,
     };
 
     await chrome.storage.local.set({
       activeProviderId: providerId,
-      customBaseUrl: customBaseUrl.trim(),
+      customBaseUrl: providerId === 'custom' ? customBaseUrl.trim() : '',
       selectedModelId,
       selectedModel: chosenModel,
       searchProvider,
@@ -224,41 +267,84 @@ export const SettingsPanel: React.FC = () => {
             <span>LLM API Key ({providerId === 'gemini' ? 'AIzaSy...' : providerId === 'ollama' ? 'Optional for local' : 'nvapi-... / sk-...'})</span>
           </label>
         </div>
-        <input
-          type="password"
-          value={apiKey}
-          onChange={(e) => setApiKey(e.target.value)}
-          placeholder={
-            providerId === 'gemini'
-              ? 'AIzaSy...'
-              : providerId === 'ollama'
-              ? 'Not required for local Ollama'
-              : 'nvapi-... / sk-...'
-          }
-          className={`w-full bg-slate-950 border rounded-lg px-3 py-2 text-slate-100 font-mono focus:outline-none focus:border-brand-500 ${
-            !apiKey && providerId !== 'ollama' ? 'border-red-500/70' : 'border-slate-700'
-          }`}
-        />
-        {!apiKey && providerId !== 'ollama' && (
+
+        <div className="relative">
+          <input
+            type={showPassword ? 'text' : 'password'}
+            value={apiKey}
+            onChange={(e) => {
+              setApiKey(e.target.value);
+              setTestStatus({ status: 'idle', message: '' });
+            }}
+            placeholder={
+              providerId === 'gemini'
+                ? 'AIzaSy...'
+                : providerId === 'ollama'
+                ? 'Not required for local Ollama'
+                : 'nvapi-... / sk-...'
+            }
+            className={`w-full bg-slate-950 border rounded-lg pl-3 pr-10 py-2 text-slate-100 font-mono focus:outline-none focus:border-brand-500 ${
+              !apiKey && providerId !== 'ollama' ? 'border-red-500/70' : 'border-slate-700'
+            }`}
+          />
+          <button
+            type="button"
+            onClick={() => setShowPassword(!showPassword)}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 p-1"
+            title={showPassword ? 'Hide Key' : 'Show Key'}
+          >
+            {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+          </button>
+        </div>
+
+        {/* Live Test Status Feedback */}
+        {testStatus.status === 'testing' && (
+          <div className="flex items-center gap-2 p-2 rounded-lg bg-sky-950/80 border border-sky-600/70 text-sky-200 text-xs">
+            <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0 text-sky-400" />
+            <span>{testStatus.message}</span>
+          </div>
+        )}
+        {testStatus.status === 'success' && (
+          <div className="flex items-center gap-2 p-2 rounded-lg bg-emerald-950/80 border border-emerald-600/70 text-emerald-200 text-xs animate-in fade-in">
+            <Check className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
+            <span>{testStatus.message}</span>
+          </div>
+        )}
+        {testStatus.status === 'error' && (
+          <div className="flex items-start gap-2 p-2 rounded-lg bg-rose-950/80 border border-rose-600/70 text-rose-200 text-xs animate-in fade-in">
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-rose-400 mt-0.5" />
+            <div className="flex-1">
+              <span className="font-semibold text-rose-300">Connection Failed: </span>
+              <span>{testStatus.message}</span>
+            </div>
+          </div>
+        )}
+
+        {!apiKey && providerId !== 'ollama' && testStatus.status === 'idle' && (
           <div className="flex items-center gap-1.5 text-red-400 text-[11px] mt-1">
             <AlertTriangle className="w-3 h-3 flex-shrink-0" />
-            <span>No API key entered for <strong>{providerId}</strong>. Enter your key and click <strong>Save Key & Activate</strong>.</span>
+            <span>No API key entered for <strong>{providerId}</strong>. Enter your key, click <strong>Test Key</strong>, then <strong>Save & Activate</strong>.</span>
           </div>
         )}
-        {apiKey && (
-          <div className="flex items-center gap-1.5 text-green-400 text-[11px] mt-1">
-            <Check className="w-3 h-3 flex-shrink-0" />
-            <span>API key entered. Click <strong>Save Key & Activate</strong> below to apply.</span>
-          </div>
-        )}
-        <div className="pt-1.5">
+
+        <div className="pt-1.5 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={handleTestApiKey}
+            disabled={!apiKey && providerId !== 'ollama'}
+            className="py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 font-semibold rounded-lg flex items-center justify-center gap-1.5 transition border border-slate-700 text-xs"
+          >
+            <Zap className="w-3.5 h-3.5 text-amber-400" />
+            <span>Test API Key Live</span>
+          </button>
+
           <button
             type="button"
             onClick={() => handleSave()}
-            className="w-full py-2 bg-brand-600 hover:bg-brand-500 text-white font-semibold rounded-lg flex items-center justify-center gap-1.5 transition shadow text-xs"
+            className="py-2 bg-brand-600 hover:bg-brand-500 text-white font-semibold rounded-lg flex items-center justify-center gap-1.5 transition shadow text-xs"
           >
             {saveSuccess ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
-            <span>{saveSuccess ? 'Saved & Activated!' : `Save Key & Activate ${providerId}`}</span>
+            <span>{saveSuccess ? 'Saved & Activated!' : `Save & Activate`}</span>
           </button>
         </div>
       </div>
