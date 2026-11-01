@@ -51,9 +51,9 @@ document.addEventListener('DOMContentLoaded', () => {
   ];
 
   const browserEvents = [
-    { tag: 'Reading', target: 'openai.com/research', detail: 'Scanning page structure & citations' },
-    { tag: 'Finding', target: 'arxiv.org/abs/2406.09123', detail: 'Grounding primary multimodal findings' },
-    { tag: 'Extracting', target: 'notion.so/briefing', detail: 'Formatting structured markdown summary' }
+    { tag: 'DevTools CDP', target: 'Live DOM & Stylesheets', detail: 'T2 write: modified button CSS with TOCTOU hash binding' },
+    { tag: 'Delegation', target: 'DeepSeek R1 Specialist', detail: 'Delegated async code debug with tab mutating lock' },
+    { tag: 'Sentinel', target: 'Zero-Token Watcher', detail: 'Monitoring page mutations with zero idle token usage' }
   ];
 
   const simGoalEl = document.getElementById('simGoalText');
@@ -192,11 +192,39 @@ document.addEventListener('DOMContentLoaded', () => {
   // 5. Capability Matrix Switcher
   const capabilities = [
     {
-      id: 'desktop',
+      id: 'devtools',
       index: '01',
+      label: 'Security-First DevTools (CDP) Engine',
+      icon: 'wrench',
+      color: '#df6b48',
+      title: 'Direct Chrome DevTools Protocol Control',
+      body: 'Single chokepoint gateway with strict capability tiers (T0-T3). Live DOM/CSS editing, V8 script live-reloading, network interception, and TOCTOU cryptographic payload-hash binding with automated undo snapshots.',
+      steps: [
+        'Capability Tiers: T0 Read-only to T2 Writes & T3 Exec',
+        'Cryptographic TOCTOU Payload-Hash Binding & HITL Diffs',
+        'Fail-closed domain blocklist and automated rollback snapshots'
+      ]
+    },
+    {
+      id: 'specialists',
+      index: '02',
+      label: 'Specialist Sub-Agent Delegation',
+      icon: 'bot',
+      color: '#d9ab58',
+      title: 'Async Multi-Model Sub-Agent Delegation',
+      body: 'The primary agent delegates heavy coding, live debugging, or deep analysis to dedicated specialist models (DeepSeek R1, Claude 3.5 Sonnet, Llama 3.3 70B) with tab mutating locks while continuing its own orchestrations.',
+      steps: [
+        'Scoped tool allowlists & single-writer tab locks',
+        'Async background execution with non-blocking progress',
+        'Automatic recovery after service worker restarts'
+      ]
+    },
+    {
+      id: 'desktop',
+      index: '03',
       label: 'Desktop OS Actuation & Control',
       icon: 'mouse-pointer-2',
-      color: '#df6b48',
+      color: '#62877e',
       title: 'Full OS Automation & Window Control',
       body: 'Hybrid targeting uses Windows UIA Accessibility trees first and Vision LLM grounding as fallback. Move windows across monitors, automate hotkeys, click UI elements, and snapshot workspace states.',
       steps: [
@@ -207,10 +235,10 @@ document.addEventListener('DOMContentLoaded', () => {
     },
     {
       id: 'browser',
-      index: '02',
+      index: '04',
       label: 'Autonomous Web Research & Scraping',
       icon: 'search',
-      color: '#62877e',
+      color: '#8fb7ab',
       title: 'Research the Open Web Across Tabs',
       body: 'Traces sources across tabs, parses complex DOM trees, extracts structured tabular data, and grounds evidence with precise citations—not guesswork.',
       steps: [
@@ -220,25 +248,25 @@ document.addEventListener('DOMContentLoaded', () => {
       ]
     },
     {
-      id: 'subsystems',
-      index: '03',
-      label: 'Native Subsystems: Email, Scheduler, Files',
-      icon: 'layers-3',
-      color: '#d9ab58',
-      title: 'Memory-Aware Tools & Local Automation',
-      body: 'Direct Microsoft Outlook COM and SMTP/IMAP integration with automated reply tracking, natural language & cron scheduler with meeting context gates, and vision-verified file conversions.',
+      id: 'sentinel',
+      index: '05',
+      label: 'Zero-Token Sentinel Watcher',
+      icon: 'shield-alert',
+      color: '#71948b',
+      title: 'Background Page Change Detection',
+      body: 'Monitors DOM mutations, price updates, and layout shifts completely in the content script with zero LLM token consumption until actual change thresholds are met.',
       steps: [
-        'Read & compose Outlook emails with financial risk filters',
-        'Natural language scheduler ("every weekday at 9am")',
-        'Convert PDF, DOCX, XLSX with Vision layout spot-check'
+        'Zero LLM tokens during idle monitoring',
+        'TOCTOU baseline re-anchoring & debounce gates',
+        'Automatic or Human-In-The-Loop alerting'
       ]
     },
     {
       id: 'safety',
-      index: '04',
+      index: '06',
       label: 'Instant ESC Kill-Switch & Rollback',
       icon: 'shield-check',
-      color: '#8fb7ab',
+      color: '#df6b48',
       title: 'Power With an Instant Handbrake',
       body: 'Hit ESC at any point to sever the LLM stream, abort tool actions, and halt audio. All file modifications and process terminations are snapshotted for instant atomic rollback.',
       steps: [
@@ -325,11 +353,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 6. Providers Selection Switcher
   const providersData = [
-    { name: 'Google AI Studio (Gemini)', defaultTag: 'DEFAULT BRAIN', model: 'models/gemini-flash-lite-latest', desc: 'Fast reasoning, massive token capacity, and automated 35s rate-limit cooldown recovery.' },
-    { name: 'NVIDIA NIM (Cloud)', defaultTag: 'VISION ENGINE', model: 'nvidia/llama-3.2-90b-vision-instruct', desc: 'Dedicated vision model grounding UI coordinates, screenshot diffs, and document layouts.' },
-    { name: 'OpenAI Compatible', defaultTag: 'SUPPORTED', model: 'gpt-4o / gpt-4o-mini', desc: 'Standard OpenAI completion endpoint compatible with corporate and private endpoints.' },
-    { name: 'Groq (Fast Inference)', defaultTag: 'ULTRA FAST', model: 'llama-3.3-70b-versatile', desc: 'High-throughput execution for instant intent routing and classification.' },
-    { name: 'Ollama (Local Private)', defaultTag: 'OFFLINE', model: 'llama3.2 / deepseek-r1', desc: '100% private execution on your local GPU with no internet transmission.' }
+    { name: 'DeepSeek (R1 / V3)', defaultTag: 'SPECIALIST REASONER', model: 'deepseek-ai/deepseek-r1', desc: 'State-of-the-art chain-of-thought reasoning for complex specialist coding, debugging, and analysis.' },
+    { name: 'Anthropic Claude', defaultTag: 'FRONTIER CODER', model: 'claude-3-5-sonnet-20241022', desc: 'Superior programming acumen, live stylesheet refactoring, and structured HTML AST synthesis.' },
+    { name: 'NVIDIA NIM (Cloud)', defaultTag: 'FLAGSHIP NIM', model: 'meta/llama-3.3-70b-instruct', desc: 'High-speed cloud inference with dedicated vision models grounding UI coordinates, screenshot diffs, and layouts.' },
+    { name: 'Google AI Studio (Gemini)', defaultTag: 'HIGH CAPACITY', model: 'gemini-2.0-flash', desc: 'Massive context window, ultra-fast latency, and automated 35s rate-limit cooldown recovery.' },
+    { name: 'OpenAI Compatible', defaultTag: 'UNIVERSAL', model: 'gpt-4o / gpt-4o-mini', desc: 'Standard OpenAI completion endpoint compatible with corporate and private vLLM endpoints.' },
+    { name: 'Groq (Ultra-Fast)', defaultTag: 'LPUS ACCELERATED', model: 'llama-3.3-70b-versatile', desc: 'Instantaneous token throughput for real-time intent classification and routing.' },
+    { name: 'Ollama (Local Private)', defaultTag: '100% OFFLINE', model: 'llama3.2 / deepseek-r1:8b', desc: 'Zero cloud telemetry. Private execution directly on your local GPU with no internet transmission.' }
   ];
 
   let selectedProvider = providersData[0];
