@@ -16,6 +16,10 @@ import {
   FileCode,
   HardDrive,
   Flame,
+  Volume2,
+  VolumeX,
+  Network,
+  Loader2,
 } from 'lucide-react';
 import {
   listResearchNotes,
@@ -32,6 +36,8 @@ import type { DiscoveredModel } from '../../../lib/llm/model-registry';
 import { loadProviderKeys } from '../../../lib/storage/secure';
 import { vfs, type VFSFile } from '../../../lib/workspace/vfs';
 import { MarkdownMessage } from './MarkdownMessage';
+import { AudioBriefing } from '../../../lib/voice/speech';
+import { runSwarm, type SwarmResult } from '../../../lib/agent/swarm/coordinator';
 
 interface ResearchPanelProps {
   onOpenWorkspacePath?: (path: string) => void;
@@ -52,7 +58,89 @@ export const ResearchPanel: React.FC<ResearchPanelProps> = ({ onOpenWorkspacePat
   // Classic quick notes
   const [notes, setNotes] = useState<ResearchNote[]>([]);
   const [copied, setCopied] = useState(false);
-  const [activeSubTab, setActiveSubTab] = useState<'deep_research' | 'workspace_dossiers' | 'quick_notes'>('deep_research');
+  const [activeSubTab, setActiveSubTab] = useState<'deep_research' | 'swarm_research' | 'workspace_dossiers' | 'quick_notes'>('deep_research');
+  const [speakingNoteId, setSpeakingNoteId] = useState<string | null>(null);
+
+  // Swarm Research State
+  const [swarmTopic, setSwarmTopic] = useState('');
+  const [swarmWorkers, setSwarmWorkers] = useState(3);
+  const [isSwarmRunning, setIsSwarmRunning] = useState(false);
+  const [swarmResult, setSwarmResult] = useState<SwarmResult | null>(null);
+  const [swarmStatus, setSwarmStatus] = useState<string>('');
+
+  const toggleAudioBriefing = (id: string, text: string) => {
+    if (speakingNoteId === id) {
+      AudioBriefing.stop();
+      setSpeakingNoteId(null);
+    } else {
+      setSpeakingNoteId(id);
+      AudioBriefing.speak(text, {
+        onEnd: () => setSpeakingNoteId(null),
+        onError: () => setSpeakingNoteId(null),
+      });
+    }
+  };
+
+  const handleStartSwarmResearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!swarmTopic.trim() || isSwarmRunning) return;
+
+    setIsSwarmRunning(true);
+    setSwarmResult(null);
+    setSwarmStatus('Decomposing topic into orthogonal parallel sub-queries...');
+
+    try {
+      const local = (await chrome.storage.local.get([
+        'activeProviderId',
+        'customBaseUrl',
+        'selectedModelId',
+      ])) as { activeProviderId?: string; customBaseUrl?: string; selectedModelId?: string };
+
+      const pId = local.activeProviderId || 'nim-cloud';
+      const preset = getPreset(pId) || getPreset('nim-cloud')!;
+      const keys = await loadProviderKeys(pId);
+      const apiKey = keys?.llmApiKey || '';
+
+      const providerConfig: ProviderConfig = {
+        id: preset.id,
+        label: preset.label,
+        baseUrl: local.customBaseUrl || preset.baseUrl,
+        apiKey,
+      };
+
+      const model: DiscoveredModel = {
+        id: local.selectedModelId || 'meta/llama-3.3-70b-instruct',
+        contextLength: 128000,
+        supportsTools: true,
+        supportsVision: false,
+        isAgentTuned: true,
+        providerLabel: preset.label,
+      };
+
+      setSwarmStatus(`Spawning ${swarmWorkers} parallel worker tabs across distinct sources...`);
+      const result = await runSwarm({
+        topic: swarmTopic.trim(),
+        providerConfig,
+        model,
+        maxWorkers: swarmWorkers,
+        workerTimeoutMs: 45_000,
+      });
+
+      setSwarmResult(result);
+      setSwarmStatus('');
+
+      const slug = swarmTopic.toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 30);
+      const dossierPath = `/research/${slug}/SWARM_DOSSIER.md`;
+      const content = `# Swarm Dossier: ${result.topic}\n\n**Generated:** ${new Date().toISOString()}\n**Duration:** ${(result.durationMs / 1000).toFixed(1)}s\n\n---\n\n## Sources Checked\n${result.subResults.map((r) => `- [${r.name}](${r.url}) ${r.error ? `*(Error: ${r.error})*` : '*(Success)*'}`).join('\n')}\n\n---\n\n${result.synthesis}`;
+
+      await vfs.writeFile(dossierPath, content, { createdBy: 'agent', tags: ['swarm', 'research'], overwrite: true });
+      await loadInitialData();
+    } catch (err) {
+      setSwarmStatus(`Swarm error: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsSwarmRunning(false);
+    }
+  };
 
   const loadInitialData = async () => {
     // 1. Classic quick notes
@@ -199,6 +287,17 @@ export const ResearchPanel: React.FC<ResearchPanelProps> = ({ onOpenWorkspacePat
           >
             <Sparkles className="w-3.5 h-3.5 text-brand-400" />
             <span>Timed Deep Research</span>
+          </button>
+          <button
+            onClick={() => setActiveSubTab('swarm_research')}
+            className={`px-2.5 py-1 rounded text-[11px] font-medium transition flex items-center gap-1.5 ${
+              activeSubTab === 'swarm_research'
+                ? 'bg-brand-600/30 text-brand-300 border border-brand-500/50'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Network className="w-3.5 h-3.5 text-purple-400" />
+            <span>Multi-Tab Swarm</span>
           </button>
           <button
             onClick={() => setActiveSubTab('workspace_dossiers')}
@@ -355,9 +454,23 @@ export const ResearchPanel: React.FC<ResearchPanelProps> = ({ onOpenWorkspacePat
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between text-[10px] text-slate-400">
                     <span>LIVE STREAMING NOTES (NIM WORKSPACE)</span>
-                    <span className="font-mono text-slate-500 truncate max-w-[180px]">
-                      {progress.activeFilePath}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      {liveNotesContent && (
+                        <button
+                          type="button"
+                          onClick={() => toggleAudioBriefing('live_notes', liveNotesContent)}
+                          className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] ${
+                            speakingNoteId === 'live_notes' ? 'bg-amber-500/20 text-amber-300' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                          }`}
+                        >
+                          {speakingNoteId === 'live_notes' ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
+                          <span>{speakingNoteId === 'live_notes' ? 'Stop' : 'Listen'}</span>
+                        </button>
+                      )}
+                      <span className="font-mono text-slate-500 truncate max-w-[140px]">
+                        {progress.activeFilePath}
+                      </span>
+                    </div>
                   </div>
                   <div className="h-44 overflow-y-auto p-2.5 bg-slate-950/80 rounded border border-slate-800 font-mono text-[11px] text-slate-300 whitespace-pre-wrap leading-relaxed">
                     {liveNotesContent || 'Waiting for first findings to be extracted...'}
@@ -374,14 +487,165 @@ export const ResearchPanel: React.FC<ResearchPanelProps> = ({ onOpenWorkspacePat
                 <p className="text-[11px] text-slate-300 max-w-sm mx-auto">
                   Crawled {progress.pagesVisited} pages and synthesized full Executive Report.
                 </p>
-                <div className="pt-2">
+                <div className="pt-2 flex items-center justify-center gap-2">
                   <button
                     onClick={() => onOpenWorkspacePath?.(progress.finalReportPath || '')}
                     className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-medium inline-flex items-center gap-1.5 shadow transition"
                   >
                     <FileText className="w-3.5 h-3.5" />
-                    <span>View Dossier in Workspace: {progress.finalReportPath}</span>
+                    <span>View Dossier in Workspace</span>
                   </button>
+                  {liveNotesContent && (
+                    <button
+                      type="button"
+                      onClick={() => toggleAudioBriefing('final_report', liveNotesContent)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium inline-flex items-center gap-1.5 shadow transition ${
+                        speakingNoteId === 'final_report'
+                          ? 'bg-amber-600/40 text-amber-200 border border-amber-500/50'
+                          : 'bg-slate-800 hover:bg-slate-700 text-slate-200'
+                      }`}
+                    >
+                      {speakingNoteId === 'final_report' ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+                      <span>{speakingNoteId === 'final_report' ? 'Stop Audio' : 'Audio Briefing'}</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Swarm Research Sub-tab */}
+        {activeSubTab === 'swarm_research' && (
+          <div className="space-y-4">
+            {!isSwarmRunning && (
+              <form
+                onSubmit={handleStartSwarmResearch}
+                className="bg-slate-800/60 border border-slate-700/80 rounded-xl p-3.5 space-y-3 shadow-lg"
+              >
+                <div className="flex items-center gap-2">
+                  <Network className="w-4 h-4 text-purple-400" />
+                  <span className="font-semibold text-slate-200 text-xs">
+                    Multi-Tab Swarm Intelligence
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Decomposes your research objective into orthogonal sub-questions and deploys concurrent worker tabs across Google, Wikipedia, GitHub, and ArXiv in parallel, synthesizing findings into an executive dossier.
+                </p>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] text-slate-400 uppercase tracking-wider">Swarm Research Objective</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. State-of-the-art vision-language models benchmark comparison 2025"
+                    value={swarmTopic}
+                    onChange={(e) => setSwarmTopic(e.target.value)}
+                    required
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-200 text-xs placeholder-slate-500 focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                    <Globe className="w-3 h-3 text-slate-500" />
+                    <span>Concurrent Worker Tabs</span>
+                  </label>
+                  <div className="flex items-center gap-1.5">
+                    {[2, 3, 4, 5].map((count) => (
+                      <button
+                        key={count}
+                        type="button"
+                        onClick={() => setSwarmWorkers(count)}
+                        className={`px-3 py-1 rounded-md text-[11px] font-medium transition ${
+                          swarmWorkers === count
+                            ? 'bg-purple-600 text-white shadow-sm shadow-purple-500/30'
+                            : 'bg-slate-900/80 text-slate-400 hover:bg-slate-700 border border-slate-800'
+                        }`}
+                      >
+                        {count} Workers
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-medium rounded-lg flex items-center justify-center gap-1.5 shadow-md shadow-purple-600/30 transition text-xs"
+                >
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <span>Launch Swarm ({swarmWorkers} parallel tabs)</span>
+                </button>
+              </form>
+            )}
+
+            {isSwarmRunning && (
+              <div className="bg-slate-800/80 border border-purple-500/50 rounded-xl p-4 space-y-3 shadow-2xl">
+                <div className="flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 text-purple-400 animate-spin" />
+                  <span className="font-semibold text-slate-200 text-xs">
+                    Swarm Dispatching Parallel Tabs...
+                  </span>
+                </div>
+                <p className="text-xs font-mono text-purple-300 bg-slate-900/70 p-2 rounded border border-slate-800">
+                  {swarmStatus || 'Exploring concurrent sources...'}
+                </p>
+                <div className="text-[11px] text-slate-400">
+                  Workers are opening background tabs, extracting structured content, and computing relevance scores in parallel.
+                </div>
+              </div>
+            )}
+
+            {!isSwarmRunning && swarmResult && (
+              <div className="bg-slate-800/80 border border-purple-500/40 rounded-xl p-4 space-y-3 shadow-xl">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    <span className="font-semibold text-slate-200 text-xs">
+                      Swarm Synthesis Ready
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      ({(swarmResult.durationMs / 1000).toFixed(1)}s • {swarmResult.subResults.length} sources)
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => toggleAudioBriefing('swarm_synthesis', swarmResult.synthesis)}
+                      className={`px-2 py-1 rounded text-[11px] font-medium flex items-center gap-1 transition ${
+                        speakingNoteId === 'swarm_synthesis'
+                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                          : 'bg-slate-700 hover:bg-slate-600 text-slate-200'
+                      }`}
+                      title={speakingNoteId === 'swarm_synthesis' ? 'Stop Audio Briefing' : 'Listen to Audio Briefing'}
+                    >
+                      {speakingNoteId === 'swarm_synthesis' ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+                      <span>{speakingNoteId === 'swarm_synthesis' ? 'Stop Briefing' : 'Audio Briefing'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Sources List */}
+                <div className="space-y-1">
+                  <div className="text-[10px] text-slate-400 uppercase tracking-wider">Parallel Sources Consulted</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {swarmResult.subResults.map((sub, i) => (
+                      <a
+                        key={i}
+                        href={sub.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[10px] px-2 py-0.5 bg-slate-900 border border-slate-700 rounded text-slate-300 hover:text-purple-300 hover:border-purple-500/50 flex items-center gap-1 truncate max-w-[200px]"
+                      >
+                        <Globe className="w-2.5 h-2.5 shrink-0 text-slate-500" />
+                        <span className="truncate">{sub.name}</span>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Synthesis Markdown */}
+                <div className="p-3 bg-slate-950/70 rounded-lg border border-slate-800 text-slate-200 leading-relaxed text-xs max-h-96 overflow-y-auto">
+                  <MarkdownMessage text={swarmResult.synthesis} />
                 </div>
               </div>
             )}
@@ -473,16 +737,28 @@ export const ResearchPanel: React.FC<ResearchPanelProps> = ({ onOpenWorkspacePat
                       <h4 className="text-xs font-semibold text-slate-200 truncate">
                         {note.sourceTitle || 'Web Source'}
                       </h4>
-                      {note.sourceUrl && (
-                        <a
-                          href={note.sourceUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-slate-400 hover:text-brand-400"
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => toggleAudioBriefing(note.id, `${note.sourceTitle}. ${note.summary}`)}
+                          className={`p-1 rounded hover:bg-slate-700 ${
+                            speakingNoteId === note.id ? 'text-amber-400 animate-pulse' : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                          title={speakingNoteId === note.id ? 'Stop audio briefing' : 'Play audio briefing'}
                         >
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
-                      )}
+                          {speakingNoteId === note.id ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+                        </button>
+                        {note.sourceUrl && (
+                          <a
+                            href={note.sourceUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-slate-400 hover:text-brand-400"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        )}
+                      </div>
                     </div>
                     <p className="text-[11px] text-slate-300 whitespace-pre-wrap leading-relaxed">
                       {note.summary}

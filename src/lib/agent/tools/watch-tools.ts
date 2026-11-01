@@ -3,6 +3,7 @@ import {
   listWatches,
   deleteWatch,
   loadWatch,
+  formatInterval,
   type WatchTarget,
   type WatchType,
 } from '../../storage/watch';
@@ -13,6 +14,9 @@ export interface CreateWatchOptions {
   type?: WatchType;
   selector?: string;
   conditionPrompt?: string;
+  /** Interval in seconds (preferred — use when user says "every 20 seconds"). */
+  intervalSeconds?: number;
+  /** Interval in minutes (legacy — use when user says "every 5 minutes"). */
   intervalMinutes?: number;
 }
 
@@ -21,7 +25,24 @@ export interface CreateWatchOptions {
  */
 export async function executeCreateWatch(options: CreateWatchOptions): Promise<string> {
   const watchId = crypto.randomUUID();
-  const interval = Math.max(1, options.intervalMinutes ?? 30);
+
+  // Resolve the true interval in seconds:
+  // 1. intervalSeconds wins if provided
+  // 2. intervalMinutes (in minutes) is converted to seconds
+  // 3. Default: 30 minutes = 1800 seconds
+  let intervalSeconds: number;
+  if (options.intervalSeconds !== undefined) {
+    intervalSeconds = options.intervalSeconds;
+  } else if (options.intervalMinutes !== undefined) {
+    intervalSeconds = options.intervalMinutes * 60;
+  } else {
+    intervalSeconds = 1800; // 30 minutes default
+  }
+
+  // Clamp to sane bounds: minimum 5 seconds, maximum 24 hours
+  intervalSeconds = Math.max(5, Math.min(86400, intervalSeconds));
+  const intervalMinutes = intervalSeconds / 60;
+
   const now = Date.now();
 
   const newWatch: WatchTarget = {
@@ -31,7 +52,8 @@ export async function executeCreateWatch(options: CreateWatchOptions): Promise<s
     type: options.type ?? 'price',
     selector: options.selector?.trim() || undefined,
     conditionPrompt: options.conditionPrompt?.trim() || undefined,
-    intervalMinutes: interval,
+    intervalSeconds,
+    intervalMinutes,
     status: 'active',
     alertCount: 0,
     notificationOnMatch: true,
@@ -41,14 +63,18 @@ export async function executeCreateWatch(options: CreateWatchOptions): Promise<s
 
   await saveWatch(newWatch);
 
+  const humanInterval = formatInterval(intervalSeconds);
   const condPart = newWatch.conditionPrompt ? ` | Condition: "${newWatch.conditionPrompt}"` : '';
   const selPart = newWatch.selector ? ` | Selector: \`${newWatch.selector}\`` : '';
+  const mv3Notice = intervalSeconds < 30
+    ? '\n- **Notice:** In background watch mode, Chrome MV3 alarms enforce a 30-second minimum wake interval.'
+    : '';
 
   return `MONITOR CREATED SUCCESSFULLY:
 - **Name:** "${newWatch.name}"
 - **URL:** ${newWatch.url}
-- **Interval:** Every ${interval} minute(s)
-- **Status:** 🟢 Active (Scheduled in background)${condPart}${selPart}
+- **Interval:** Every ${humanInterval}
+- **Status:** 🟢 Active (Scheduled in background)${condPart}${selPart}${mv3Notice}
 - **Watch ID:** \`${watchId}\`
 
 NIM Agent will now automatically monitor this page in the background and trigger browser notifications when changes or threshold conditions are detected.`;
@@ -68,7 +94,10 @@ export async function executeListWatches(): Promise<string> {
     const lastChecked = w.lastCheckedAt ? new Date(w.lastCheckedAt).toLocaleTimeString() : 'Never';
     const cond = w.conditionPrompt ? ` — Condition: "${w.conditionPrompt}"` : '';
     const lastVal = w.lastSnapshot ? `\n  - *Last Snapshot:* "${w.lastSnapshot.slice(0, 120)}..."` : '';
-    return `${idx + 1}. **${w.name}** [${statusBadge}] (Every ${w.intervalMinutes}m · Last checked: ${lastChecked} · Alerts: ${w.alertCount})${cond}\n  - URL: ${w.url}\n  - ID: \`${w.watchId}\`${lastVal}`;
+    // Back-compat: derive intervalSeconds if missing from older persisted records
+    const intervalSeconds = w.intervalSeconds ?? w.intervalMinutes * 60;
+    const intervalDisplay = formatInterval(intervalSeconds);
+    return `${idx + 1}. **${w.name}** [${statusBadge}] (Every ${intervalDisplay} · Last checked: ${lastChecked} · Alerts: ${w.alertCount})${cond}\n  - URL: ${w.url}\n  - ID: \`${w.watchId}\`${lastVal}`;
   });
 
   return `SCHEDULED MONITORS (${watches.length}):\n\n${lines.join('\n\n')}`;

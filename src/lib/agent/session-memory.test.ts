@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { buildMemoryEnrichedTranscript, type HistoryTurn } from './session-memory';
+import { buildMemoryEnrichedTranscript, sliceRecentPrompts, type HistoryTurn } from './session-memory';
 import { vfs } from '../workspace/vfs';
 
 // Mock LLM chat completion
@@ -86,5 +86,54 @@ describe('Lifelong Session Memory', () => {
 
     // Current instruction is at the end
     expect(transcript[transcript.length - 1].content).toBe('Query 5');
+  });
+
+  describe('sliceRecentPrompts Context Window Limiter', () => {
+    it('returns empty array when turns is empty', () => {
+      expect(sliceRecentPrompts([])).toEqual([]);
+    });
+
+    it('returns all turns when fewer than maxPrompts user turns exist', () => {
+      const history: HistoryTurn[] = [
+        { role: 'user', content: 'Prompt 1' },
+        { role: 'assistant', content: 'Response 1' },
+      ];
+      const sliced = sliceRecentPrompts(history, 2);
+      expect(sliced).toHaveLength(2);
+      expect(sliced[0].content).toBe('Prompt 1');
+      expect(sliced[1].content).toBe('Response 1');
+    });
+
+    it('limits history to the last 2 user prompts and their assistant responses', () => {
+      const history: HistoryTurn[] = [
+        { role: 'user', content: 'Old Prompt 1' },
+        { role: 'assistant', content: 'Old Response 1' },
+        { role: 'user', content: 'Old Prompt 2' },
+        { role: 'assistant', content: 'Old Response 2' },
+        { role: 'user', content: 'Recent Prompt 1' },
+        { role: 'assistant', content: 'Recent Response 1' },
+        { role: 'user', content: 'Recent Prompt 2' },
+        { role: 'assistant', content: 'Recent Response 2' },
+      ];
+      const sliced = sliceRecentPrompts(history, 2);
+      expect(sliced).toHaveLength(4);
+      expect(sliced[0].content).toBe('Recent Prompt 1');
+      expect(sliced[1].content).toBe('Recent Response 1');
+      expect(sliced[2].content).toBe('Recent Prompt 2');
+      expect(sliced[3].content).toBe('Recent Response 2');
+    });
+
+    it('filters out system welcome messages and empty entries', () => {
+      const history: HistoryTurn[] = [
+        { role: 'assistant', content: 'Hello! I am your NIM AI agent assistant.' },
+        { role: 'user', content: '   ' },
+        { role: 'user', content: 'Valid prompt' },
+        { role: 'assistant', content: 'Valid answer' },
+      ];
+      const sliced = sliceRecentPrompts(history, 2);
+      expect(sliced).toHaveLength(2);
+      expect(sliced[0].content).toBe('Valid prompt');
+      expect(sliced[1].content).toBe('Valid answer');
+    });
   });
 });

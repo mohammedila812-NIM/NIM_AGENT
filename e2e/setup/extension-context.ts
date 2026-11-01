@@ -1,4 +1,9 @@
-import { test as base, type BrowserContext, type Page } from '@playwright/test';
+import { test as base, chromium, type BrowserContext, type Page } from '@playwright/test';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const EXTENSION_PATH = path.resolve(__dirname, '../../.output/chrome-mv3');
 
 export interface ExtensionFixtures {
   context: BrowserContext;
@@ -7,21 +12,30 @@ export interface ExtensionFixtures {
 }
 
 export const test = base.extend<ExtensionFixtures>({
-  context: async ({ browser }, use) => {
-    const ctx = await browser.newContext();
-    await use(ctx);
-    await ctx.close();
+  context: async ({}, use) => {
+    const context = await chromium.launchPersistentContext('', {
+      headless: false,
+      args: [
+        `--disable-extensions-except=${EXTENSION_PATH}`,
+        `--load-extension=${EXTENSION_PATH}`,
+        '--no-sandbox',
+      ],
+    });
+    await use(context);
+    await context.close();
   },
   extensionId: async ({ context }, use) => {
-    await context.waitForEvent('serviceworker');
-    const sw = context.serviceWorkers()[0];
-    const id = sw.url().split('/')[2];
+    let [background] = context.serviceWorkers();
+    if (!background) {
+      background = await context.waitForEvent('serviceworker', { timeout: 15_000 });
+    }
+    const id = background.url().split('/')[2];
     await use(id);
   },
   sidePanelPage: async ({ context, extensionId }, use) => {
     const page = await context.newPage();
     await page.goto(`chrome-extension://${extensionId}/sidepanel.html`);
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
     await use(page);
     await page.close();
   },

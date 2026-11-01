@@ -19,6 +19,36 @@ const MAX_VERBATIM_TURNS = 4;
 const COMPRESSION_THRESHOLD_TURNS = 6;
 
 /**
+ * Slices a conversation history list down to at most the last N user prompts
+ * (along with their immediate assistant responses) to prevent latency explosion
+ * and token bloat across long sessions.
+ */
+export function sliceRecentPrompts(
+  turns: HistoryTurn[],
+  maxPrompts = 2,
+): HistoryTurn[] {
+  if (!turns || turns.length === 0) return [];
+
+  const clean = turns.filter(
+    (t) => t.content && t.content.trim().length > 0 && !t.content.includes('I am your NIM AI agent'),
+  );
+
+  const userIndices: number[] = [];
+  clean.forEach((t, idx) => {
+    if (t.role === 'user') {
+      userIndices.push(idx);
+    }
+  });
+
+  if (userIndices.length > maxPrompts) {
+    const startIndex = userIndices[userIndices.length - maxPrompts];
+    return clean.slice(startIndex);
+  }
+
+  return clean;
+}
+
+/**
  * Builds an initial transcript that combines system prompts,
  * auto-summarized long-term memory, recent conversation turns,
  * and workspace asset awareness.

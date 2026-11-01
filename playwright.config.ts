@@ -1,6 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 import path from 'path';
+import { fileURLToPath } from 'url';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const EXTENSION_PATH = path.resolve(__dirname, '.output/chrome-mv3');
 
 export default defineConfig({
@@ -8,7 +10,8 @@ export default defineConfig({
   timeout: 60_000,
   retries: 0,
   use: {
-    channel: 'chromium',
+    ...devices['Desktop Chrome'],
+    headless: false,
     launchOptions: {
       args: [
         `--disable-extensions-except=${EXTENSION_PATH}`,

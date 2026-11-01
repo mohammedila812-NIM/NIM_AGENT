@@ -6,6 +6,9 @@ import {
   deleteWatch,
   toggleWatchStatus,
   alarmName,
+  parseDuration,
+  formatInterval,
+  MIN_MV3_ALARM_PERIOD_MINUTES,
   type WatchTarget,
 } from './watch';
 import { validateToolCall } from '../agent/tools/schemas';
@@ -103,5 +106,51 @@ describe('Watch Storage Module', () => {
 
     await deleteWatch('watch-to-delete');
     expect(await loadWatch('watch-to-delete')).toBeNull();
+  });
+
+  describe('Duration Parsing & Formatting Utilities', () => {
+    it('parses bare numbers and numeric strings as minutes by default', () => {
+      expect(parseDuration(15)).toBe(900);
+      expect(parseDuration('15')).toBe(900);
+      expect(parseDuration(30)).toBe(1800);
+      expect(parseDuration('5')).toBe(300);
+    });
+
+    it('parses explicit second strings accurately', () => {
+      expect(parseDuration('20s')).toBe(20);
+      expect(parseDuration('20sec')).toBe(20);
+      expect(parseDuration('20 seconds')).toBe(20);
+      expect(parseDuration('45s')).toBe(45);
+    });
+
+    it('parses explicit minute and hour strings accurately', () => {
+      expect(parseDuration('2min')).toBe(120);
+      expect(parseDuration('5 minutes')).toBe(300);
+      expect(parseDuration('1h')).toBe(3600);
+      expect(parseDuration('2 hours')).toBe(7200);
+    });
+
+    it('supports custom default unit for bare numbers', () => {
+      expect(parseDuration(20, 1800, 'seconds')).toBe(20);
+      expect(parseDuration('20', 1800, 'seconds')).toBe(20);
+    });
+
+    it('falls back to defaultSeconds on invalid or missing input', () => {
+      expect(parseDuration(undefined, 1800)).toBe(1800);
+      expect(parseDuration('', 1800)).toBe(1800);
+      expect(parseDuration(-5, 1800)).toBe(1800);
+    });
+
+    it('formats intervals into human-readable strings', () => {
+      expect(formatInterval(20)).toBe('20 seconds');
+      expect(formatInterval(60)).toBe('1 minute');
+      expect(formatInterval(900)).toBe('15 minutes');
+      expect(formatInterval(3600)).toBe('1 hour');
+      expect(formatInterval(7200)).toBe('2 hours');
+    });
+
+    it('enforces Chrome Manifest V3 minimum alarm interval of at least 30 seconds', () => {
+      expect(MIN_MV3_ALARM_PERIOD_MINUTES).toBeGreaterThanOrEqual(0.5);
+    });
   });
 });

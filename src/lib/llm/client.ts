@@ -12,14 +12,32 @@ export const RETRY_BASE_MS = 2000;
 export interface ChatCompletionOptions {
   onRetry?: (attempt: number, maxAttempts: number, delayMs: number, reason: string) => void;
   maxRetries?: number;
+  signal?: AbortSignal;
 }
 
 function stripMetadata(messages: ChatMessage[]): Omit<ChatMessage, 'metadata'>[] {
   return messages.map(({ metadata: _m, ...rest }) => rest);
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason ?? new DOMException('The user aborted a request.', 'AbortError'));
+      return;
+    }
+    const timer = setTimeout(() => {
+      if (signal) signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    function onAbort() {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      reject(signal?.reason ?? new DOMException('The user aborted a request.', 'AbortError'));
+    }
+    if (signal) {
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
+  });
 }
 
 /**
@@ -129,11 +147,16 @@ export async function chatCompletion(
   }
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
+    if (options?.signal?.aborted) {
+      throw options.signal.reason ?? new DOMException('The user aborted a request.', 'AbortError');
+    }
+
     try {
       const res = await fetch(`${config.baseUrl}/chat/completions`, {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
+        signal: options?.signal,
       });
 
       if (!res.ok) {
@@ -170,10 +193,13 @@ export async function chatCompletion(
         // Check if rate limited or server error eligible for retry
         const isRetryable = res.status === 429 || res.status === 503 || res.status === 502 || res.status === 504 || res.status === 500;
         if (isRetryable && attempt < maxRetries - 1) {
+          if (options?.signal?.aborted) {
+            throw options.signal.reason ?? new DOMException('The user aborted a request.', 'AbortError');
+          }
           const delayMs = extractRetryDelayMs(res.status, res.headers, text, attempt);
           const reason = res.status === 429 ? 'Rate limit / quota exceeded (429)' : `Server error (${res.status})`;
           options?.onRetry?.(attempt + 1, maxRetries, delayMs, reason);
-          await delay(delayMs);
+          await delay(delayMs, options?.signal);
           continue;
         }
 
@@ -182,12 +208,16 @@ export async function chatCompletion(
 
       return (await res.json()) as ChatCompletionResponse;
     } catch (err) {
+      const isAbort = (err instanceof Error && err.name === 'AbortError') || options?.signal?.aborted;
+      if (isAbort) {
+        throw err;
+      }
       if (attempt === maxRetries - 1) throw err;
-      const isAbortOrNetwork = err instanceof Error && (err.name === 'AbortError' || /fetch|network|failed/i.test(err.message));
-      if (isAbortOrNetwork) {
+      const isNetwork = err instanceof Error && /fetch|network|failed/i.test(err.message);
+      if (isNetwork) {
         const delayMs = extractRetryDelayMs(0, undefined, '', attempt);
         options?.onRetry?.(attempt + 1, maxRetries, delayMs, 'Network connection retry');
-        await delay(delayMs);
+        await delay(delayMs, options?.signal);
       } else {
         throw err;
       }
@@ -219,21 +249,29 @@ export async function* streamChatCompletion(
   }
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
+    if (options?.signal?.aborted) {
+      throw options.signal.reason ?? new DOMException('The user aborted a request.', 'AbortError');
+    }
+
     try {
       const res = await fetch(`${config.baseUrl}/chat/completions`, {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
+        signal: options?.signal,
       });
 
       if (!res.ok) {
         const text = await res.text();
         const isRetryable = res.status === 429 || res.status === 503 || res.status === 502;
         if (isRetryable && attempt < maxRetries - 1) {
+          if (options?.signal?.aborted) {
+            throw options.signal.reason ?? new DOMException('The user aborted a request.', 'AbortError');
+          }
           const delayMs = extractRetryDelayMs(res.status, res.headers, text, attempt);
           const reason = res.status === 429 ? 'Rate limit / quota exceeded (429)' : `Server error (${res.status})`;
           options?.onRetry?.(attempt + 1, maxRetries, delayMs, reason);
-          await delay(delayMs);
+          await delay(delayMs, options?.signal);
           continue;
         }
         throw new Error(`API stream error (${res.status}): ${text}`);
@@ -247,10 +285,14 @@ export async function* streamChatCompletion(
       if (content) yield content;
       return;
     } catch (err) {
+      const isAbort = (err instanceof Error && err.name === 'AbortError') || options?.signal?.aborted;
+      if (isAbort) {
+        throw err;
+      }
       if (attempt === maxRetries - 1) throw err;
       const delayMs = extractRetryDelayMs(0, undefined, '', attempt);
       options?.onRetry?.(attempt + 1, maxRetries, delayMs, 'Stream connection retry');
-      await delay(delayMs);
+      await delay(delayMs, options?.signal);
     }
   }
 }

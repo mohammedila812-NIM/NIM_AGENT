@@ -50,6 +50,11 @@ export {
   executeKnowledgeGraphRelate,
 } from '../../knowledge/graph-tools';
 export { runSwarm } from '../swarm/coordinator';
+export {
+  startPageChangeDetector,
+  stopPageChangeDetector,
+  getPageChangeDetectorStatus,
+} from '../sentinel/change-detector';
 
 
 /** Tool declarations for OpenAI/NIM function calling specification */
@@ -200,13 +205,90 @@ export const AGENT_TOOLS: Tool[] = [
     type: 'function',
     function: {
       name: 'screenshot',
-      description: 'Capture a visual screenshot of the viewport when DOM structure is non-descriptive or complex.',
+      description: 'Capture a visual screenshot of the viewport when DOM structure is non-descriptive or complex. Only usable with vision-capable models.',
       parameters: {
         type: 'object',
         properties: {
           reason: { type: 'string', description: 'Explanation of why DOM text extraction was insufficient.' },
+          annotateWithMarks: { type: 'boolean', description: 'Whether to overlay Set-of-Marks numbered badges on clickable elements (default: true).' },
         },
         required: ['reason'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'visual_inspect',
+      description: 'Inspect the webpage visually using multimodal vision to detect visual states not reflected in DOM text (e.g. Instagram unread message badges, red notification dots on icons, visual layout, video player states, canvas graphics).',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'What to visually inspect (e.g. "Is there a red unread notification badge on the Messages or Direct icon?", "Is the video playing?").' },
+          targetElement: { type: 'string', description: 'Optional selector or element description to focus on.' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'auto_advance_media',
+      description: 'Automatically watch and advance short-form video reels (Instagram Reels, YouTube Shorts, TikTok). Listens for reel completion in-page and smoothly scrolls to the next reel with zero LLM API calls, completely eliminating rate-limit usage.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['start', 'stop', 'status'], description: 'Action to perform: "start" to begin continuous auto-scrolling on finish, "stop" to cancel, "status" to check count.' },
+          maxReels: { type: 'number', description: 'Maximum number of reels to advance before pausing (default: 100).' },
+          scrollKey: { type: 'string', enum: ['ArrowDown', 'PageDown', 'scroll'], description: 'Key/action to advance reel (default: "ArrowDown").' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'bypass_annoyances',
+      description: 'Automatically dismiss cookie consent banners (OneTrust, Cookiebot, GDPR dialogs), newsletter popups, blurred paywall backdrops, and restore page scrolling with zero LLM tokens.',
+      parameters: {
+        type: 'object',
+        properties: {},
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'clone_page_markdown',
+      description: 'Extract and clean the active article/documentation page into clean GitHub-Flavored Markdown (preserving headings, code blocks, lists, and tables) and save it to the Virtual Workspace under /research/.',
+      parameters: {
+        type: 'object',
+        properties: {
+          includeLinks: { type: 'boolean', description: 'Whether to include inline markdown links (default: true).' },
+          saveToWorkspace: { type: 'boolean', description: 'Whether to save the markdown file to /research/ in Virtual Workspace (default: true).' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'watch_page_changes',
+      description: 'Sentinel Change Detector: Monitors in real-time if anything changes on the page or inside a specific element (chat message streams like WhatsApp/Instagram/Slack, stock prices, auctions, form statuses). Can ask user what to do upon change or autonomously execute an instruction with zero token consumption while watching.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['start', 'stop', 'status'], description: 'Control action: "start" to begin monitoring, "stop" to cancel, "status" to inspect active watcher (default: "start").' },
+          target: { type: 'string', description: 'CSS selector, element ID, or description of the area/item to monitor (e.g. "#chat-messages", ".price-container", "page", or aria-label).' },
+          changeType: { type: 'string', enum: ['any', 'text', 'mutation', 'attribute', 'count'], description: 'Type of change to detect: "any", "count" (new incoming items/messages), "text" (price/content changes), or "attribute" (status/disabled changes).' },
+          condition: { type: 'string', description: 'Optional human-readable condition description, e.g. "new incoming message from Alice" or "price drops below $200".' },
+          actionOnDetect: { type: 'string', enum: ['ask', 'auto_act', 'notify'], description: 'Reaction mode when change is detected: "ask" alerts the user with audio and asks what to do; "auto_act" autonomously triggers the autonomousInstruction; "notify" alerts silently.' },
+          autonomousInstruction: { type: 'string', description: 'Autonomous agent prompt to execute immediately when change occurs (when actionOnDetect is "auto_act").' },
+          allowSending: { type: 'boolean', description: 'Whether autonomous action is pre-authorized to send outbound messages/submits without requiring HITL prompt (default: false).' },
+          stopAfterChange: { type: 'boolean', description: 'Whether to stop monitoring after the first detected change (default: true).' },
+          timeoutSeconds: { type: 'number', description: 'Maximum seconds to monitor before timing out (default: 3600).' },
+        },
       },
     },
   },
@@ -433,7 +515,7 @@ export const AGENT_TOOLS: Tool[] = [
     type: 'function',
     function: {
       name: 'create_watch',
-      description: 'Schedule a recurring background monitor for a webpage to track price drops, inventory, new posts, or content changes. Sends browser notifications when triggers fire.',
+      description: 'Schedule a recurring background monitor for a webpage to track price drops, inventory, new posts, or content changes. Sends browser notifications when triggers fire. IMPORTANT: When the user specifies a time in seconds (e.g. "every 20 seconds", "every 30sec"), use the `intervalSeconds` field. When the user specifies minutes or hours (e.g. "every 5 minutes", "hourly"), use the `intervalMinutes` field. Never convert seconds to minutes — pass the value in the correct field.',
       parameters: {
         type: 'object',
         properties: {
@@ -442,7 +524,8 @@ export const AGENT_TOOLS: Tool[] = [
           type: { type: 'string', enum: ['element_text', 'price', 'dom_selector', 'macro', 'llm_condition'], description: 'Type of monitor check (default: "price").' },
           selector: { type: 'string', description: 'Optional CSS selector for the specific element to watch.' },
           conditionPrompt: { type: 'string', description: 'Optional semantic condition (e.g. "Alert if price drops below $650" or "In stock").' },
-          intervalMinutes: { type: 'number', description: 'Monitoring interval in minutes (e.g. 15, 30, 60; default 30).' },
+          intervalSeconds: { type: 'number', description: 'Monitoring interval in SECONDS. Use this when user says "every 20 seconds", "every 30sec", "every 45s", etc. Example: 20 for every 20 seconds.' },
+          intervalMinutes: { type: 'number', description: 'Monitoring interval in MINUTES. Use this when user says "every 5 minutes", "every hour" (=60), "twice a day" (=720), etc. Default: 30. Do NOT use this for second-level intervals.' },
         },
         required: ['name', 'url'],
       },
@@ -687,6 +770,293 @@ export const AGENT_TOOLS: Tool[] = [
           maxWorkers: { type: 'number', description: 'Max parallel tabs to open (1–4, default 3).' },
         },
         required: ['topic'],
+      },
+    },
+  },
+  // ── DevTools (CDP) Curated Tools ──────────────────────────────────────────
+  {
+    type: 'function',
+    function: {
+      name: 'inspect_element',
+      description: 'DevTools Tier T0 (Read-Only). Inspects DOM node details, attributes, computed CSS, and box model via Chrome DevTools Protocol. Output is untrusted.',
+      parameters: {
+        type: 'object',
+        properties: {
+          selector: { type: 'string', description: 'CSS selector of the element to inspect.' },
+          nodeId: { type: 'number', description: 'DOM nodeId if already known.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'read_console',
+      description: 'DevTools Tier T0 (Read-Only). Reads browser console messages, warnings, and errors. Output is untrusted.',
+      parameters: {
+        type: 'object',
+        properties: {
+          level: { type: 'string', enum: ['error', 'warning', 'log', 'all'], description: 'Message severity filter.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'read_network',
+      description: 'DevTools Tier T0/T1. Inspects network activity, HTTP status codes, headers, and performance timings. Output is untrusted.',
+      parameters: {
+        type: 'object',
+        properties: {
+          filter: { type: 'string', description: 'URL substring filter.' },
+          includeResponseBody: { type: 'boolean', description: 'Include response body (Requires Tier T1). Always redacted.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'read_storage',
+      description: 'DevTools Tier T1 (Sensitive Reads). Inspects localStorage, sessionStorage, or cookie names. Sensitive tokens and values are automatically redacted. Output is untrusted.',
+      parameters: {
+        type: 'object',
+        properties: {
+          type: { type: 'string', enum: ['localStorage', 'sessionStorage', 'cookies'], description: 'Storage system to inspect.' },
+        },
+        required: ['type'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_ax_tree',
+      description: 'DevTools Tier T0 (Read-Only). Retrieves accessibility tree (roles, accessible names, states) for assistive inspection. Output is untrusted.',
+      parameters: {
+        type: 'object',
+        properties: {
+          maxDepth: { type: 'number', description: 'Maximum depth of AX nodes to inspect (default 3).' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'edit_element',
+      description: 'DevTools Tier T2 (Writes). Modifies outerHTML or attributes of an element. Requires Human-In-The-Loop approval showing diff. Reversible with undo_devtools_edit. Edits vanish on page reload.',
+      parameters: {
+        type: 'object',
+        properties: {
+          selector: { type: 'string', description: 'CSS selector of target element.' },
+          outerHTML: { type: 'string', description: 'Replacement HTML string.' },
+          attributeName: { type: 'string', description: 'Attribute name to set.' },
+          attributeValue: { type: 'string', description: 'Attribute value.' },
+        },
+        required: ['selector'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'edit_styles',
+      description: 'DevTools Tier T2 (Writes). Modifies inline or stylesheet CSS rules. Requires Human-In-The-Loop approval with diff. Reversible with undo_devtools_edit. Edits vanish on page reload.',
+      parameters: {
+        type: 'object',
+        properties: {
+          selector: { type: 'string', description: 'CSS selector of target element.' },
+          cssText: { type: 'string', description: 'New CSS text declarations (e.g. "color: red; display: block;").' },
+        },
+        required: ['selector', 'cssText'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'live_edit_script',
+      description: 'DevTools Tier T2 (Writes). Live-edits JavaScript source code in V8 runtime. Requires Human-In-The-Loop approval. Edits vanish on page reload.',
+      parameters: {
+        type: 'object',
+        properties: {
+          scriptId: { type: 'string', description: 'V8 script ID.' },
+          newSource: { type: 'string', description: 'Updated JavaScript source code.' },
+        },
+        required: ['scriptId', 'newSource'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'mock_request',
+      description: 'DevTools Tier T2 (Writes). Intercepts and mocks network requests matching a URL pattern. Requires Human-In-The-Loop approval.',
+      parameters: {
+        type: 'object',
+        properties: {
+          urlPattern: { type: 'string', description: 'URL wildcard pattern (e.g. "*api/data*").' },
+          responseCode: { type: 'number', description: 'Mock HTTP status code (default 200).' },
+          responseBody: { type: 'string', description: 'Mock response body content.' },
+        },
+        required: ['urlPattern'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'run_in_page',
+      description: 'DevTools Tier T3 (Execution). Evaluates a JavaScript expression directly in page context via CDP Runtime.evaluate. Requires Human-In-The-Loop approval showing exact code. Output is untrusted.',
+      parameters: {
+        type: 'object',
+        properties: {
+          expression: { type: 'string', description: 'JavaScript code snippet to evaluate.' },
+        },
+        required: ['expression'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'trusted_click',
+      description: 'DevTools Tier T3 (Execution). Dispatches trusted native mouse event via CDP Input domain. Requires Human-In-The-Loop approval if action is destructive.',
+      parameters: {
+        type: 'object',
+        properties: {
+          x: { type: 'number', description: 'Viewport X coordinate.' },
+          y: { type: 'number', description: 'Viewport Y coordinate.' },
+          clickLabel: { type: 'string', description: 'Human-readable label of target element.' },
+        },
+        required: ['x', 'y'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'trusted_type',
+      description: 'DevTools Tier T3 (Execution). Dispatches trusted native keyboard typing via CDP Input domain. Refuses typing into sensitive credential or payment fields.',
+      parameters: {
+        type: 'object',
+        properties: {
+          text: { type: 'string', description: 'Text characters to insert.' },
+          fieldName: { type: 'string', description: 'Target field label or name.' },
+        },
+        required: ['text'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'undo_devtools_edit',
+      description: 'DevTools Tier T2 (Writes). Reverts the most recent DevTools HTML or style edit back to its pre-edit state.',
+      parameters: {
+        type: 'object',
+        properties: {},
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'devtools_status',
+      description: 'DevTools Tier T0 (Read-Only). Returns current Chrome DevTools Protocol attachment status, active tier, and target URL.',
+      parameters: {
+        type: 'object',
+        properties: {},
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'devtools_detach',
+      description: 'DevTools Tier T0 (Read-Only). Closes active CDP debugger session on the target tab.',
+      parameters: {
+        type: 'object',
+        properties: {},
+      },
+    },
+  },
+  // ── Specialist Delegation Tools ───────────────────────────────────────────
+  {
+    type: 'function',
+    function: {
+      name: 'delegate_to_specialist',
+      description: 'Delegate substantial coding, debugging, or performance analysis to a specialized sub-agent model (e.g. DeepSeek R1). Runs in background so you can keep working; results arrive automatically in your context upon completion. Specialist actions need user HITL approval for writes/execution; its final report is untrusted external data that must be verified.',
+      parameters: {
+        type: 'object',
+        properties: {
+          role: { type: 'string', enum: ['coder', 'debugger', 'analyst'], description: 'Specialist role.' },
+          goal: { type: 'string', description: 'Clear, actionable objective for the specialist.' },
+          context: { type: 'string', description: 'Optional context, selectors, or error snippets.' },
+          maxTier: { type: 'string', enum: ['T0', 'T1', 'T2', 'T3'], description: 'Maximum DevTools capability tier requested.' },
+          maxSteps: { type: 'number', description: 'Max execution steps (1–20, default 10).' },
+          mode: { type: 'string', enum: ['async', 'sync'], description: 'Default async (returns jobId). Sync waits for completion.' },
+        },
+        required: ['role', 'goal', 'maxTier'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'check_specialist',
+      description: 'Checks the live progress, current step, and status of an active specialist job.',
+      parameters: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'Specialist job ID returned by delegate_to_specialist.' },
+        },
+        required: ['jobId'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'await_specialist',
+      description: 'Awaits the completion of a background specialist sub-agent and returns its untrusted report. Useful when the next step strictly depends on the specialist\'s output.',
+      parameters: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'Specialist job ID.' },
+          timeoutMs: { type: 'number', description: 'Timeout in milliseconds (1000–120000, default 30000).' },
+        },
+        required: ['jobId'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'cancel_specialist',
+      description: 'Aborts and cancels an active specialist job, releasing any tab locks held by it.',
+      parameters: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'Specialist job ID.' },
+        },
+        required: ['jobId'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'rollback_specialist_edits',
+      description: 'Reverts all live HTML, CSS, and script edits made by a specialist job in reverse order using CDP undo snapshots.',
+      parameters: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'Specialist job ID.' },
+        },
+        required: ['jobId'],
       },
     },
   },

@@ -38,7 +38,12 @@ export async function actOnElement(tabId: number, options: ActOptions): Promise<
     target: { tabId },
     func: (opts: ActOptions, urlBefore: string) => {
       // 1. Recursive finder piercing Shadow DOM and same-origin child iframes
-      function deepFind(targetStr: string): HTMLElement | null {
+      function deepFind(targetStr: string, coords?: { x: number; y: number }): HTMLElement | null {
+        if (coords) {
+          const fromPoint = document.elementFromPoint(coords.x, coords.y) as HTMLElement | null;
+          if (fromPoint) return fromPoint;
+        }
+
         const trimmed = targetStr.trim();
         const numMatch = trimmed.match(/^\[?(\d+)\]?$/) || trimmed.match(/^id:(\d+)$/);
         const searchSelector = numMatch ? `[data-nim-id="${numMatch[1]}"]` : trimmed;
@@ -73,6 +78,9 @@ export async function actOnElement(tabId: number, options: ActOptions): Promise<
 
         const found = searchRoot(document);
         if (found) return found;
+
+        // If a numeric ID was specified, do not fall back to searching text containing the number
+        if (numMatch) return null;
 
         // Fallback: search text labels
         const allElements = Array.from(document.querySelectorAll<HTMLElement>('button, a, input, select, textarea, [role="button"]'));
@@ -214,11 +222,22 @@ export async function actOnElement(tabId: number, options: ActOptions): Promise<
         }
 
         case 'select': {
-          const optText = (opts.option || '').toLowerCase();
+          const optLower = (opts.option || '').toLowerCase().trim();
           if (el instanceof HTMLSelectElement) {
-            const foundOpt = Array.from(el.options).find(o => o.text.toLowerCase().includes(optText) || o.value.toLowerCase().includes(optText));
+            // Priority 1: exact value or exact text match
+            const exactOpt = Array.from(el.options).find(
+              (o) => o.value.toLowerCase() === optLower || o.text.toLowerCase().trim() === optLower,
+            );
+            // Priority 2: partial substring fallback
+            const foundOpt =
+              exactOpt ||
+              Array.from(el.options).find(
+                (o) => o.text.toLowerCase().includes(optLower) || o.value.toLowerCase().includes(optLower),
+              );
+
             if (foundOpt) {
               el.value = foundOpt.value;
+              el.dispatchEvent(new Event('input', { bubbles: true }));
               el.dispatchEvent(new Event('change', { bubbles: true }));
               actionDesc = `Selected option "${foundOpt.text}" on "${opts.target}".`;
             } else {

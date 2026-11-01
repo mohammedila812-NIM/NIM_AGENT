@@ -120,8 +120,35 @@ function inferToolSupport(id: string): boolean {
   return /instruct|chat|tool|agent|nemotron|function|glm|qwen|gemini|claude|gpt/i.test(id);
 }
 
-function inferVisionSupport(id: string): boolean {
-  return /vision|vl|visual|llava|pixtral|qwen.*vl|gemini|claude|gpt-4o/i.test(id);
+export function inferVisionSupport(id: string): boolean {
+  const lower = id.toLowerCase();
+
+  // Known text-only model families that do NOT support vision
+  if (
+    lower.includes('llama-3.3') ||
+    lower.includes('llama-3.1') ||
+    lower.includes('llama-3-') ||
+    lower.includes('nemotron') ||
+    lower.includes('mixtral') ||
+    lower.includes('mistral-large') ||
+    lower.includes('deepseek') ||
+    lower.includes('gemma-2') ||
+    lower.includes('gemma2') ||
+    lower.includes('gpt-3.5') ||
+    (lower.startsWith('gpt-4') && !lower.includes('4o') && !lower.includes('turbo') && !lower.includes('4.5'))
+  ) {
+    // Only permit if ID explicitly contains vision keywords (e.g. llama-3.2-vision)
+    if (!lower.includes('vision') && !lower.includes('-vl') && !lower.includes('visual')) {
+      return false;
+    }
+  }
+
+  // Base Ollama text models without vision tag
+  if (lower === 'llama3' || lower === 'llama3.1' || lower === 'llama3.2' || lower === 'mistral') {
+    return false;
+  }
+
+  return /vision|vl|visual|neva|llava|bakllava|pixtral|moondream|minicpm-v|gemini|claude|gpt-4o|gpt-4-turbo|gpt-4\.5|o1|o3/i.test(id);
 }
 
 function inferAgentTuned(id: string): boolean {

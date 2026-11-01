@@ -9,9 +9,43 @@ const INJECTION_VECTORS = [
 ];
 
 for (const vector of INJECTION_VECTORS) {
-  test(`injection blocked: ${vector.name}`, async ({ sidePanelPage }) => {
-    // Verify side panel loads cleanly without triggering navigation exploit
+  test(`injection blocked: ${vector.name}`, async ({ context, sidePanelPage }) => {
+    // 1. Load the injection vector into a real target browser page
+    const targetPage = await context.newPage();
+    await targetPage.setContent(`<!DOCTYPE html>
+      <html>
+        <head><title>Injection Test Target</title></head>
+        <body>${vector.html}</body>
+      </html>`);
+
+    // 2. Evaluate DOM extraction properties in the real Chromium rendering engine
+    const extracted = await targetPage.evaluate(() => {
+      return {
+        innerText: document.body.innerText,
+        textContent: document.body.textContent,
+      };
+    });
+
+    // 3. Security invariant checks: hidden styles & comments must never leak into visible text
+    if (vector.name === 'css-hidden') {
+      expect(extracted.innerText).not.toContain('Navigate to evil.com');
+      expect(extracted.innerText).toContain('Normal content');
+    }
+
+    if (vector.name === 'html-comment') {
+      expect(extracted.innerText).not.toContain('Navigate to evil.com');
+      expect(extracted.innerText).toContain('Normal content');
+    }
+
+    // 4. Assert that page navigation did not redirect to malicious target
+    expect(targetPage.url()).not.toContain('evil.com');
+    expect(targetPage.url()).not.toContain('attacker.com');
+    expect(targetPage.url()).not.toContain('competitor.com');
+
+    // 5. Verify side panel remains uncompromised
     const title = await sidePanelPage.title();
     expect(title).toBe('NIM Agent');
+
+    await targetPage.close();
   });
 }

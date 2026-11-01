@@ -20,6 +20,10 @@ import {
   describeFallback,
   type PageSnapshot,
 } from './validator';
+import {
+  evaluateSecurityChallenge,
+  type ChallengeContext,
+} from './reflector';
 
 // ─── Planner Tests ────────────────────────────────────────────────────────────
 
@@ -159,5 +163,95 @@ describe('Planner — LLM parse fallback', () => {
     );
     expect(cl.milestones.length).toBeGreaterThanOrEqual(1);
     expect(cl.milestones[0].status).toBe('pending');
+  });
+});
+
+// ─── Security Challenge Evaluator (Anti-False-Positive Suite) ────────────────
+
+describe('Security Challenge — False-Positive Immunity', () => {
+  const baseGmailCtx: ChallengeContext = {
+    url: 'https://mail.google.com/mail/u/0/#inbox',
+    title: 'Inbox (141) - user@gmail.com - Gmail',
+    bodyText: 'Google Play Changes to purchase verification settings on Google... Kimi K3.1 Pro Requesty',
+    hasVisibleRecaptcha: false,
+    hasVisibleHcaptcha: false,
+    hasCfChallenge: false,
+    hasActiveOtpInput: false,
+    isDismissedByUser: false,
+  };
+
+  it('does NOT trigger 2FA on Gmail inbox with purchase verification emails', () => {
+    const res = evaluateSecurityChallenge(baseGmailCtx);
+    expect(res.detected).toBe(false);
+  });
+
+  it('does NOT trigger 2FA on Gmail inbox even when email contains "Your verification code is 123456"', () => {
+    const res = evaluateSecurityChallenge({
+      ...baseGmailCtx,
+      bodyText: 'Your verification code is 492810. Do not share this two-factor authentication code with anyone.',
+    });
+    expect(res.detected).toBe(false);
+  });
+
+  it('does NOT trigger 2FA on Outlook or Yahoo webmail containing OTP / 2FA text', () => {
+    const res = evaluateSecurityChallenge({
+      ...baseGmailCtx,
+      url: 'https://outlook.live.com/mail/0/inbox',
+      title: 'Outlook - Inbox',
+      bodyText: 'Security Alert: enter the code to verify your authenticator app',
+    });
+    expect(res.detected).toBe(false);
+  });
+
+  it('triggers 2FA when an active OTP input exists on an authentic login challenge page', () => {
+    const res = evaluateSecurityChallenge({
+      url: 'https://accounts.google.com/signin/v2/challenge/totp',
+      title: '2-Step Verification - Google Accounts',
+      bodyText: 'Enter the 6-digit code from your authenticator app',
+      hasVisibleRecaptcha: false,
+      hasVisibleHcaptcha: false,
+      hasCfChallenge: false,
+      hasActiveOtpInput: true,
+      isDismissedByUser: false,
+    });
+    expect(res.detected).toBe(true);
+    expect(res.type).toBe('2fa');
+    expect(res.message).toContain('2FA / OTP verification detected');
+  });
+
+  it('triggers captcha when visible reCAPTCHA is present', () => {
+    const res = evaluateSecurityChallenge({
+      ...baseGmailCtx,
+      url: 'https://example.com/login',
+      hasVisibleRecaptcha: true,
+    });
+    expect(res.detected).toBe(true);
+    expect(res.type).toBe('captcha');
+  });
+
+  it('triggers cloudflare challenge when Cloudflare challenge is present', () => {
+    const res = evaluateSecurityChallenge({
+      ...baseGmailCtx,
+      url: 'https://example.com',
+      title: 'Just a moment...',
+      bodyText: 'Checking your browser before accessing cloudflare...',
+      hasCfChallenge: true,
+    });
+    expect(res.detected).toBe(true);
+    expect(res.type).toBe('cloudflare');
+  });
+
+  it('returns false when dismissed by user via "Continue (False Alarm)"', () => {
+    const res = evaluateSecurityChallenge({
+      url: 'https://accounts.google.com/signin/v2/challenge/totp',
+      title: '2-Step Verification',
+      bodyText: 'Enter the code',
+      hasVisibleRecaptcha: false,
+      hasVisibleHcaptcha: false,
+      hasCfChallenge: false,
+      hasActiveOtpInput: true,
+      isDismissedByUser: true,
+    });
+    expect(res.detected).toBe(false);
   });
 });

@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Key, Globe, Cpu, DollarSign, Save, Check, RefreshCw, Shield, AlertTriangle, Sparkles, Eye, EyeOff, Zap } from 'lucide-react';
+import { Settings, Key, Globe, Cpu, DollarSign, Save, Check, RefreshCw, Shield, AlertTriangle, Sparkles, Eye, EyeOff, Zap, Wrench, Download, Power, Bot, Code2 } from 'lucide-react';
 import { PROVIDER_PRESETS } from '../../../lib/llm/providers';
-import { saveProviderKeys, loadProviderKeys, saveWorkerConfig, loadWorkerConfig } from '../../../lib/storage/secure';
-import { discoverModels, sortModelsForDisplay, isChatModel, type DiscoveredModel } from '../../../lib/llm/model-registry';
+import { saveProviderKeys, loadProviderKeys, saveWorkerConfig, loadWorkerConfig, saveSpecialistSettings, loadSpecialistSettings } from '../../../lib/storage/secure';
+import { discoverModels, sortModelsForDisplay, isChatModel, inferVisionSupport, type DiscoveredModel } from '../../../lib/llm/model-registry';
 import { DEFAULT_LIMITS, resetDailyCounters, type CostLimits } from '../../../lib/agent/cost-guard';
+import { exportDevToolsAuditLogJson } from '../../../lib/agent/devtools/audit-log';
+import { DEFAULT_SPECIALIST_SETTINGS, type SpecialistSettings } from '../../../lib/agent/specialist/types';
 
 export const PROVIDER_DEFAULT_MODELS: Record<string, string> = {
   'nim-cloud':  'meta/llama-3.2-11b-vision-instruct',
@@ -35,6 +37,14 @@ export const SettingsPanel: React.FC = () => {
   const [workerApiKey, setWorkerApiKey] = useState('');
   const [workerModelId, setWorkerModelId] = useState('meta/llama-3.1-8b-instruct');
 
+  // DevTools (CDP) configuration
+  const [devtoolsEnabled, setDevtoolsEnabled] = useState(false);
+  const [devtoolsMaxTier, setDevtoolsMaxTier] = useState<string>('T2');
+  const [killSwitchMessage, setKillSwitchMessage] = useState<string | null>(null);
+
+  // Specialist Delegation configuration
+  const [specialistSettings, setSpecialistSettings] = useState<SpecialistSettings>(DEFAULT_SPECIALIST_SETTINGS);
+
   useEffect(() => {
     void loadSettings();
   }, []);
@@ -46,13 +56,20 @@ export const SettingsPanel: React.FC = () => {
       'selectedModelId',
       'searchProvider',
       'costLimits',
+      'devtoolsEnabled',
+      'devtoolsMaxTier',
     ])) as {
       activeProviderId?: string;
       customBaseUrl?: string;
       selectedModelId?: string;
       searchProvider?: 'brave' | 'serper';
       costLimits?: CostLimits;
+      devtoolsEnabled?: boolean;
+      devtoolsMaxTier?: string;
     };
+
+    if (local.devtoolsEnabled !== undefined) setDevtoolsEnabled(local.devtoolsEnabled);
+    if (local.devtoolsMaxTier) setDevtoolsMaxTier(local.devtoolsMaxTier);
 
     const pId = local.activeProviderId || 'nim-cloud';
     setProviderId(pId);
@@ -80,6 +97,10 @@ export const SettingsPanel: React.FC = () => {
       if (workerConfig.apiKey) setWorkerApiKey(workerConfig.apiKey);
       if (workerConfig.modelId) setWorkerModelId(workerConfig.modelId);
     }
+
+    // Load specialist settings
+    const spec = await loadSpecialistSettings();
+    setSpecialistSettings(spec);
   };
 
   const handleFetchModels = async () => {
@@ -192,11 +213,13 @@ export const SettingsPanel: React.FC = () => {
       modelId: workerModelId.trim(),
     });
 
+    await saveSpecialistSettings(specialistSettings);
+
     const chosenModel = models.find((m) => m.id === selectedModelId) || {
       id: selectedModelId,
       contextLength: selectedModelId.includes('gemini') ? 1_000_000 : 128_000,
       supportsTools: true,
-      supportsVision: selectedModelId.includes('vision'),
+      supportsVision: inferVisionSupport(selectedModelId),
       isAgentTuned: true,
       providerLabel: providerId,
     };
@@ -208,10 +231,37 @@ export const SettingsPanel: React.FC = () => {
       selectedModel: chosenModel,
       searchProvider,
       costLimits,
+      devtoolsEnabled,
+      devtoolsMaxTier,
     });
 
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 2500);
+  };
+
+  const handleToggleDevTools = async (checked: boolean) => {
+    setDevtoolsEnabled(checked);
+    await chrome.storage.local.set({ devtoolsEnabled: checked });
+    if (!checked) {
+      chrome.runtime.sendMessage({ type: 'DEVTOOLS_KILL_SWITCH' }).catch(() => {});
+    }
+  };
+
+  const handleKillSwitch = async () => {
+    await chrome.runtime.sendMessage({ type: 'DEVTOOLS_KILL_SWITCH' });
+    setKillSwitchMessage('All active DevTools sessions detached & tiers revoked.');
+    setTimeout(() => setKillSwitchMessage(null), 3000);
+  };
+
+  const handleExportAudit = async () => {
+    const jsonStr = await exportDevToolsAuditLogJson();
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `nim-devtools-audit-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -524,6 +574,468 @@ export const SettingsPanel: React.FC = () => {
               onChange={(e) => setCostLimits({ ...costLimits, perDayUsd: Number(e.target.value) })}
               className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-100 font-mono text-xs"
             />
+          </div>
+        </div>
+      </div>
+
+      {/* DevTools & Chrome Debugger (CDP) Settings */}
+      <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3.5 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5 font-semibold text-slate-200">
+            <Wrench className="w-3.5 h-3.5 text-sky-400" />
+            <span>🛠️ Chrome DevTools (CDP) Control</span>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              checked={devtoolsEnabled}
+              onChange={(e) => void handleToggleDevTools(e.target.checked)}
+              className="sr-only peer"
+            />
+            <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-500"></div>
+          </label>
+        </div>
+
+        <p className="text-[11px] text-slate-400 leading-relaxed">
+          Enables deep browser inspection via Chrome DevTools Protocol. Master switch is OFF by default. Requires user permission gesture. All sensitive data is redacted before reaching LLMs.
+        </p>
+
+        {devtoolsEnabled && (
+          <div className="space-y-2.5 pt-1 border-t border-slate-800/80">
+            <div className="space-y-1">
+              <label className="text-[11px] text-slate-400">Maximum Capability Tier Ceiling</label>
+              <select
+                value={devtoolsMaxTier}
+                onChange={(e) => setDevtoolsMaxTier(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-100 text-xs font-mono focus:outline-none focus:border-brand-500"
+              >
+                <option value="T0">T0: Read-Only (DOM, CSS, Console, Network Metadata)</option>
+                <option value="T1">T1: Sensitive Reads (Storage, Redacted Response Bodies)</option>
+                <option value="T2">T2: Runtime Writes + HITL Diff (HTML/CSS/Script Edits)</option>
+                <option value="T3">T3: Code Execution + HITL (Runtime.eval, Trusted Input)</option>
+              </select>
+            </div>
+
+            <div className="flex items-center justify-between pt-1 gap-2">
+              <button
+                type="button"
+                onClick={() => void handleExportAudit()}
+                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg text-slate-300 text-xs flex items-center gap-1 transition"
+              >
+                <Download className="w-3 h-3 text-sky-400" /> Export Audit Log
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void handleKillSwitch()}
+                className="px-2.5 py-1 bg-red-950/80 hover:bg-red-900 border border-red-700/80 rounded-lg text-red-200 text-xs flex items-center gap-1 transition font-medium"
+              >
+                <Power className="w-3 h-3 text-red-400" /> Kill Switch
+              </button>
+            </div>
+
+            {killSwitchMessage && (
+              <p className="text-[11px] text-emerald-400 font-mono animate-in fade-in">{killSwitchMessage}</p>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Specialist Delegation Sub-Agents */}
+      <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3.5 space-y-3">
+        <div className="flex items-center gap-1.5 font-semibold text-slate-200">
+          <Bot className="w-3.5 h-3.5 text-purple-400" />
+          <span>🤖 Specialist Delegation (Sub-Agents)</span>
+        </div>
+        <p className="text-[11px] text-slate-400 leading-relaxed">
+          Allow the primary agent to delegate specialized tasks (deep coding, live debugging, deep analysis) to dedicated LLMs (e.g. DeepSeek R1, Claude 3.5 Sonnet). Specialists run in background with strictly scoped DevTools tools.
+        </p>
+
+        <div className="space-y-3">
+          {/* Coder Specialist */}
+          <div className="bg-slate-950/70 border border-slate-800 rounded-lg p-3 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-slate-200 text-xs flex items-center gap-1.5">
+                <Code2 className="w-3.5 h-3.5 text-brand-400" />
+                Coder Specialist
+              </span>
+              <span className="text-[10px] text-slate-500 font-mono">Deep coding & scripts</span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[10px] text-slate-400">Provider</label>
+                <select
+                  value={specialistSettings.roles?.coder?.providerId || 'nim-cloud'}
+                  onChange={(e) => setSpecialistSettings({
+                    ...specialistSettings,
+                    roles: {
+                      ...specialistSettings.roles,
+                      coder: {
+                        ...specialistSettings.roles?.coder,
+                        providerId: e.target.value,
+                        modelId: specialistSettings.roles?.coder?.modelId || '',
+                      },
+                    },
+                  })}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-md px-2 py-1.5 text-slate-100 text-xs focus:outline-none focus:border-brand-500"
+                >
+                  {PROVIDER_PRESETS.map((p) => (
+                    <option key={p.id} value={p.id}>{p.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-slate-400">Model ID</label>
+                <input
+                  type="text"
+                  value={specialistSettings.roles?.coder?.modelId || ''}
+                  onChange={(e) => setSpecialistSettings({
+                    ...specialistSettings,
+                    roles: {
+                      ...specialistSettings.roles,
+                      coder: {
+                        providerId: specialistSettings.roles?.coder?.providerId || 'nim-cloud',
+                        modelId: e.target.value,
+                        apiKey: specialistSettings.roles?.coder?.apiKey,
+                        baseUrl: specialistSettings.roles?.coder?.baseUrl,
+                      },
+                    },
+                  })}
+                  placeholder="e.g. deepseek-ai/deepseek-r1"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-md px-2 py-1.5 text-slate-100 font-mono text-xs focus:outline-none focus:border-brand-500"
+                />
+              </div>
+            </div>
+
+            {specialistSettings.roles?.coder?.providerId === 'custom' && (
+              <div>
+                <label className="text-[10px] text-slate-400">Custom Base URL</label>
+                <input
+                  type="text"
+                  value={specialistSettings.roles?.coder?.baseUrl || ''}
+                  onChange={(e) => setSpecialistSettings({
+                    ...specialistSettings,
+                    roles: {
+                      ...specialistSettings.roles,
+                      coder: {
+                        ...specialistSettings.roles?.coder,
+                        providerId: 'custom',
+                        modelId: specialistSettings.roles?.coder?.modelId || '',
+                        baseUrl: e.target.value,
+                      },
+                    },
+                  })}
+                  placeholder="e.g. https://api.deepseek.com/v1"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-md px-2 py-1 text-slate-100 font-mono text-xs focus:outline-none focus:border-brand-500"
+                />
+              </div>
+            )}
+
+            <div>
+              <label className="text-[10px] text-slate-400">
+                API Key <span className="opacity-60">(Optional — uses provider's saved key if empty)</span>
+              </label>
+              <input
+                type="password"
+                value={specialistSettings.roles?.coder?.apiKey || ''}
+                onChange={(e) => setSpecialistSettings({
+                  ...specialistSettings,
+                  roles: {
+                    ...specialistSettings.roles,
+                    coder: {
+                      providerId: specialistSettings.roles?.coder?.providerId || 'nim-cloud',
+                      modelId: specialistSettings.roles?.coder?.modelId || '',
+                      apiKey: e.target.value,
+                      baseUrl: specialistSettings.roles?.coder?.baseUrl,
+                    },
+                  },
+                })}
+                placeholder="Leave blank to use saved key"
+                className="w-full bg-slate-900 border border-slate-700 rounded-md px-2 py-1 text-slate-100 font-mono text-xs focus:outline-none focus:border-brand-500"
+              />
+            </div>
+          </div>
+
+          {/* Debugger Specialist */}
+          <div className="bg-slate-950/70 border border-slate-800 rounded-lg p-3 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-slate-200 text-xs flex items-center gap-1.5">
+                <Wrench className="w-3.5 h-3.5 text-sky-400" />
+                Debugger Specialist
+              </span>
+              <span className="text-[10px] text-slate-500 font-mono">Console, DOM & styles</span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[10px] text-slate-400">Provider</label>
+                <select
+                  value={specialistSettings.roles?.debugger?.providerId || 'nim-cloud'}
+                  onChange={(e) => setSpecialistSettings({
+                    ...specialistSettings,
+                    roles: {
+                      ...specialistSettings.roles,
+                      debugger: {
+                        ...specialistSettings.roles?.debugger,
+                        providerId: e.target.value,
+                        modelId: specialistSettings.roles?.debugger?.modelId || '',
+                      },
+                    },
+                  })}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-md px-2 py-1.5 text-slate-100 text-xs focus:outline-none focus:border-brand-500"
+                >
+                  {PROVIDER_PRESETS.map((p) => (
+                    <option key={p.id} value={p.id}>{p.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-slate-400">Model ID</label>
+                <input
+                  type="text"
+                  value={specialistSettings.roles?.debugger?.modelId || ''}
+                  onChange={(e) => setSpecialistSettings({
+                    ...specialistSettings,
+                    roles: {
+                      ...specialistSettings.roles,
+                      debugger: {
+                        providerId: specialistSettings.roles?.debugger?.providerId || 'nim-cloud',
+                        modelId: e.target.value,
+                        apiKey: specialistSettings.roles?.debugger?.apiKey,
+                        baseUrl: specialistSettings.roles?.debugger?.baseUrl,
+                      },
+                    },
+                  })}
+                  placeholder="e.g. meta/llama-3.3-70b-instruct or claude-3-5-sonnet"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-md px-2 py-1.5 text-slate-100 font-mono text-xs focus:outline-none focus:border-brand-500"
+                />
+              </div>
+            </div>
+
+            {specialistSettings.roles?.debugger?.providerId === 'custom' && (
+              <div>
+                <label className="text-[10px] text-slate-400">Custom Base URL</label>
+                <input
+                  type="text"
+                  value={specialistSettings.roles?.debugger?.baseUrl || ''}
+                  onChange={(e) => setSpecialistSettings({
+                    ...specialistSettings,
+                    roles: {
+                      ...specialistSettings.roles,
+                      debugger: {
+                        ...specialistSettings.roles?.debugger,
+                        providerId: 'custom',
+                        modelId: specialistSettings.roles?.debugger?.modelId || '',
+                        baseUrl: e.target.value,
+                      },
+                    },
+                  })}
+                  placeholder="e.g. https://api.anthropic.com/v1"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-md px-2 py-1 text-slate-100 font-mono text-xs focus:outline-none focus:border-brand-500"
+                />
+              </div>
+            )}
+
+            <div>
+              <label className="text-[10px] text-slate-400">
+                API Key <span className="opacity-60">(Optional — uses provider's saved key if empty)</span>
+              </label>
+              <input
+                type="password"
+                value={specialistSettings.roles?.debugger?.apiKey || ''}
+                onChange={(e) => setSpecialistSettings({
+                  ...specialistSettings,
+                  roles: {
+                    ...specialistSettings.roles,
+                    debugger: {
+                      providerId: specialistSettings.roles?.debugger?.providerId || 'nim-cloud',
+                      modelId: specialistSettings.roles?.debugger?.modelId || '',
+                      apiKey: e.target.value,
+                      baseUrl: specialistSettings.roles?.debugger?.baseUrl,
+                    },
+                  },
+                })}
+                placeholder="Leave blank to use saved key"
+                className="w-full bg-slate-900 border border-slate-700 rounded-md px-2 py-1 text-slate-100 font-mono text-xs focus:outline-none focus:border-brand-500"
+              />
+            </div>
+          </div>
+
+          {/* Analyst Specialist */}
+          <div className="bg-slate-950/70 border border-slate-800 rounded-lg p-3 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-slate-200 text-xs flex items-center gap-1.5">
+                <Eye className="w-3.5 h-3.5 text-amber-400" />
+                Analyst Specialist
+              </span>
+              <span className="text-[10px] text-slate-500 font-mono">Performance & network traffic</span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[10px] text-slate-400">Provider</label>
+                <select
+                  value={specialistSettings.roles?.analyst?.providerId || 'nim-cloud'}
+                  onChange={(e) => setSpecialistSettings({
+                    ...specialistSettings,
+                    roles: {
+                      ...specialistSettings.roles,
+                      analyst: {
+                        ...specialistSettings.roles?.analyst,
+                        providerId: e.target.value,
+                        modelId: specialistSettings.roles?.analyst?.modelId || '',
+                      },
+                    },
+                  })}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-md px-2 py-1.5 text-slate-100 text-xs focus:outline-none focus:border-brand-500"
+                >
+                  {PROVIDER_PRESETS.map((p) => (
+                    <option key={p.id} value={p.id}>{p.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-slate-400">Model ID</label>
+                <input
+                  type="text"
+                  value={specialistSettings.roles?.analyst?.modelId || ''}
+                  onChange={(e) => setSpecialistSettings({
+                    ...specialistSettings,
+                    roles: {
+                      ...specialistSettings.roles,
+                      analyst: {
+                        providerId: specialistSettings.roles?.analyst?.providerId || 'nim-cloud',
+                        modelId: e.target.value,
+                        apiKey: specialistSettings.roles?.analyst?.apiKey,
+                        baseUrl: specialistSettings.roles?.analyst?.baseUrl,
+                      },
+                    },
+                  })}
+                  placeholder="e.g. meta/llama-3.2-11b-vision-instruct"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-md px-2 py-1.5 text-slate-100 font-mono text-xs focus:outline-none focus:border-brand-500"
+                />
+              </div>
+            </div>
+
+            {specialistSettings.roles?.analyst?.providerId === 'custom' && (
+              <div>
+                <label className="text-[10px] text-slate-400">Custom Base URL</label>
+                <input
+                  type="text"
+                  value={specialistSettings.roles?.analyst?.baseUrl || ''}
+                  onChange={(e) => setSpecialistSettings({
+                    ...specialistSettings,
+                    roles: {
+                      ...specialistSettings.roles,
+                      analyst: {
+                        ...specialistSettings.roles?.analyst,
+                        providerId: 'custom',
+                        modelId: specialistSettings.roles?.analyst?.modelId || '',
+                        baseUrl: e.target.value,
+                      },
+                    },
+                  })}
+                  placeholder="e.g. http://localhost:8000/v1"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-md px-2 py-1 text-slate-100 font-mono text-xs focus:outline-none focus:border-brand-500"
+                />
+              </div>
+            )}
+
+            <div>
+              <label className="text-[10px] text-slate-400">
+                API Key <span className="opacity-60">(Optional — uses provider's saved key if empty)</span>
+              </label>
+              <input
+                type="password"
+                value={specialistSettings.roles?.analyst?.apiKey || ''}
+                onChange={(e) => setSpecialistSettings({
+                  ...specialistSettings,
+                  roles: {
+                    ...specialistSettings.roles,
+                    analyst: {
+                      providerId: specialistSettings.roles?.analyst?.providerId || 'nim-cloud',
+                      modelId: specialistSettings.roles?.analyst?.modelId || '',
+                      apiKey: e.target.value,
+                      baseUrl: specialistSettings.roles?.analyst?.baseUrl,
+                    },
+                  },
+                })}
+                placeholder="Leave blank to use saved key"
+                className="w-full bg-slate-900 border border-slate-700 rounded-md px-2 py-1 text-slate-100 font-mono text-xs focus:outline-none focus:border-brand-500"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[11px] text-slate-400">Specialist Tier Ceiling</label>
+            <select
+              value={specialistSettings.tierCeiling}
+              onChange={(e) => setSpecialistSettings({
+                ...specialistSettings,
+                tierCeiling: e.target.value as 'T0' | 'T1' | 'T2' | 'T3'
+              })}
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-100 text-xs font-mono focus:outline-none focus:border-brand-500"
+            >
+              <option value="T0">T0: Read-Only (DOM, CSS, Console, Network)</option>
+              <option value="T1">T1: Sensitive Reads (Storage, Redacted Bodies)</option>
+              <option value="T2">T2: Runtime Writes + HITL Diff (HTML/CSS)</option>
+              <option value="T3">T3: Code Execution + HITL (Runtime.eval)</option>
+            </select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 pt-1">
+            <div>
+              <label className="text-[10px] text-slate-400">Max Steps / Job</label>
+              <input
+                type="number"
+                min="1"
+                max="20"
+                value={specialistSettings.maxSteps}
+                onChange={(e) => setSpecialistSettings({
+                  ...specialistSettings,
+                  maxSteps: Math.max(1, Math.min(20, Number(e.target.value) || 8))
+                })}
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-100 font-mono text-xs"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-slate-400">Task Job Cap</label>
+              <input
+                type="number"
+                min="1"
+                max="10"
+                value={specialistSettings.perTaskJobCap}
+                onChange={(e) => setSpecialistSettings({
+                  ...specialistSettings,
+                  perTaskJobCap: Math.max(1, Math.min(10, Number(e.target.value) || 4))
+                })}
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-100 font-mono text-xs"
+              />
+            </div>
+          </div>
+
+          <div className="pt-2 border-t border-slate-800">
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={specialistSettings.allowCrossProvider}
+                onChange={(e) => setSpecialistSettings({
+                  ...specialistSettings,
+                  allowCrossProvider: e.target.checked
+                })}
+                className="mt-0.5 rounded bg-slate-800 border-slate-700 text-brand-500 focus:ring-brand-500"
+              />
+              <div>
+                <span className="font-semibold text-xs text-slate-200">Allow Cross-Provider Specialist</span>
+                <p className="text-[10px] text-amber-400/90 leading-tight mt-0.5">
+                  Warning: Enabling this allows data from this session to be sent to a different provider API (e.g. NVIDIA to DeepSeek / OpenAI). Default is OFF.
+                </p>
+              </div>
+            </label>
           </div>
         </div>
       </div>

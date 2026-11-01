@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MessageSquare, ListTodo, BookOpen, Activity, ShieldCheck, Settings, Bell, HardDrive, Code } from 'lucide-react';
+import { MessageSquare, ListTodo, BookOpen, Activity, ShieldCheck, Settings, Bell, HardDrive, Code, Wrench, Power } from 'lucide-react';
 import { ChatPanel, type ChatMessageItem, type AgentStep } from './components/ChatPanel';
 import { TaskPanel } from './components/TaskPanel';
 import { ResearchPanel } from './components/ResearchPanel';
@@ -10,6 +10,7 @@ import { WatchPanel } from './components/WatchPanel';
 import { WorkspacePanel } from './components/WorkspacePanel';
 import { CodingSpacePanel } from './components/CodingSpacePanel';
 import { getCurrentCostState } from '../../lib/agent/cost-guard';
+import { sliceRecentPrompts } from '../../lib/agent/session-memory';
 
 type Tab = 'chat' | 'trace' | 'workspace' | 'code' | 'tasks' | 'monitors' | 'research' | 'security' | 'settings';
 
@@ -41,13 +42,30 @@ export default function App() {
 
   // Per-task animated step cards
   const [agentSteps, setAgentSteps] = useState<AgentStep[]>([]);
+  const [devtoolsActive, setDevtoolsActive] = useState(false);
+
+  useEffect(() => {
+    const checkDevTools = async () => {
+      try {
+        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+        const currentTabId = tabs[0]?.id;
+        if (currentTabId) {
+          const r = await chrome.storage.session.get(`devtools_tier_${currentTabId}`);
+          setDevtoolsActive(!!r[`devtools_tier_${currentTabId}`]);
+        }
+      } catch { /* ignore */ }
+    };
+    void checkDevTools();
+    const interval = setInterval(checkDevTools, 2500);
+    return () => clearInterval(interval);
+  }, []);
 
   const portRef = useRef<chrome.runtime.Port | null>(null);
 
   // Setup streaming port to background service worker with keepalive heartbeat
   useEffect(() => {
     let port: chrome.runtime.Port | null = null;
-    let finalizedTaskIds = new Set<string>();
+    const finalizedTaskIds = new Set<string>();
 
     try {
       port = chrome.runtime.connect({ name: 'sidepanel-stream' });
@@ -66,6 +84,9 @@ export default function App() {
           args?: Record<string, unknown>;
           reasoning?: string;
           result?: string;
+          target?: string;
+          summary?: string;
+          autonomousInstruction?: string;
         };
 
         if (m.type === 'AGENT_STEP') {
@@ -165,6 +186,19 @@ export default function App() {
           } else if (m.status === 'done') {
             setActiveTaskId(null);
           }
+        } else if (m.type === 'PAGE_CHANGE_DETECTED') {
+          const detail = m.autonomousInstruction
+            ? `\n\n*Autonomously Executing:* "${m.autonomousInstruction}"`
+            : '\n\n*What would you like me to do?*';
+          setMessages(prev => [
+            ...prev,
+            {
+              id: crypto.randomUUID(),
+              sender: 'agent',
+              text: `🚨 **Sentinel Change Detected on page:**\n\n${m.summary}\n\n*Target:* \`${m.target || 'page'}\`${detail}`,
+              timestamp: Date.now(),
+            },
+          ]);
         }
       };
 
@@ -209,12 +243,15 @@ export default function App() {
       },
     ]);
 
-    const history = messages
+    // Send ONLY the last 2 user prompts (and their assistant responses) to prevent quadratic context latency
+    const rawHistory = messages
       .filter((m) => m.id !== 'welcome' && m.sender !== 'error' && m.text.trim().length > 0)
       .map((m) => ({
         role: (m.sender === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
         content: m.text,
       }));
+
+    const history = sliceRecentPrompts(rawHistory, 2);
 
     chrome.runtime.sendMessage({
       type: 'AGENT_START',
@@ -260,6 +297,23 @@ export default function App() {
             <p className="text-[10px] text-slate-400 font-mono">Any Model · Your Data</p>
           </div>
         </div>
+
+        {devtoolsActive && (
+          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-sky-950/80 border border-sky-700/60 text-[10px] text-sky-300 font-mono animate-pulse">
+            <Wrench className="w-3 h-3 text-sky-400" />
+            <span>DevTools Active</span>
+            <button
+              onClick={async () => {
+                await chrome.runtime.sendMessage({ type: 'DEVTOOLS_KILL_SWITCH' });
+                setDevtoolsActive(false);
+              }}
+              title="Kill all active DevTools sessions"
+              className="ml-1 p-0.5 hover:bg-red-900/60 text-red-400 rounded transition"
+            >
+              <Power className="w-2.5 h-2.5" />
+            </button>
+          </div>
+        )}
 
         {/* Tab Navigation */}
         <nav className="flex items-center gap-1 bg-slate-900 p-0.5 rounded-lg border border-slate-800">

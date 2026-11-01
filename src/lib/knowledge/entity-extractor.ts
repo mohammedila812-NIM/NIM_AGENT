@@ -13,8 +13,41 @@
  */
 
 import { chatCompletion } from '../llm/client';
+import { isChromeAIAvailable, promptChromeAI } from '../llm/chrome-ai';
 import type { ProviderConfig } from '../llm/types';
 import { upsertNode, upsertEdge, type NodeType } from './graph-db';
+import { checkBudget, recordUsage, type CostLimits } from '../agent/cost-guard';
+import { hostMatchesAny } from '../agent/sentinel/host-matcher';
+
+export const SENSITIVE_EXTRACTION_DOMAINS = [
+  // Webmail
+  'mail.google.com',
+  'outlook.live.com',
+  'outlook.office.com',
+  'mail.yahoo.com',
+  'mail.proton.me',
+  // Financial & Banking
+  'paypal.com',
+  'chase.com',
+  'bankofamerica.com',
+  'wellsfargo.com',
+  'capitalone.com',
+  'citi.com',
+  'stripe.com',
+  // Messaging & Private Chats
+  'web.whatsapp.com',
+  'instagram.com',
+  'discord.com',
+  'slack.com',
+  'messenger.com',
+  'telegram.org',
+] as const;
+
+export interface EntityExtractionOptions {
+  enabled?: boolean;
+  costLimits?: CostLimits;
+  costPerMillion?: number;
+}
 
 // ─── Extraction Schema ────────────────────────────────────────────────────────
 
@@ -83,41 +116,93 @@ export async function extractAndStoreEntities(
   sourceUrl: string,
   providerConfig: ProviderConfig,
   modelId: string,
+  options?: EntityExtractionOptions,
 ): Promise<void> {
+  // Finding 25: Skip extraction if explicitly disabled or on sensitive domains
+  if (options?.enabled === false) return;
+
+  // Sensitive domain protection (webmail, banking, private messaging)
+  try {
+    if (sourceUrl.startsWith('http')) {
+      const host = new URL(sourceUrl).hostname.toLowerCase();
+      if (hostMatchesAny(host, SENSITIVE_EXTRACTION_DOMAINS)) {
+        return; // Silently skip extraction on private webmail, banking, and chat sites
+      }
+    }
+  } catch { /* ignore */ }
+
   // Skip if content is too short to have meaningful entities
   if (!text || text.trim().length < 80) return;
 
   // Truncate to ~3000 chars to keep extraction cheap
   const truncated = text.slice(0, 3000);
 
-  let result: ExtractionResult;
-
+  // Cost guard: ensure background extraction respects user's configured limits
+  const estimatedTokens = Math.ceil(truncated.length / 4) + 800;
+  const costPerMillion = options?.costPerMillion ?? 0.5;
   try {
-    const response = await chatCompletion(
-      providerConfig,
-      {
-        model: modelId,
-        messages: [
-          { role: 'system', content: EXTRACTOR_SYSTEM },
-          {
-            role: 'user',
-            content: `Source URL: ${sourceUrl}\n\nContent:\n${truncated}`,
-          },
-        ],
-        temperature: 0,
-        max_tokens: 800,
-      },
-    );
-
-    const raw = ((response.choices[0]?.message?.content as string) ?? '')
-      .replace(/^```(?:json)?\s*/i, '')
-      .replace(/\s*```$/, '')
-      .trim();
-
-    result = JSON.parse(raw) as ExtractionResult;
+    const budget = await checkBudget(estimatedTokens, costPerMillion, options?.costLimits);
+    if (!budget.allowed) {
+      return; // Silently skip background extraction when budget limit reached
+    }
   } catch {
-    // Extractor is non-critical — silently skip on any error
-    return;
+    // Non-fatal budget check failure
+  }
+
+  let result: ExtractionResult | null = null;
+
+  // 1. Try On-Device Chrome Built-in AI (Gemini Nano) first — zero tokens, 100% private & offline
+  try {
+    if (await isChromeAIAvailable()) {
+      const nanoText = await promptChromeAI(
+        EXTRACTOR_SYSTEM,
+        `Source URL: ${sourceUrl}\n\nContent:\n${truncated}`,
+      );
+      if (nanoText) {
+        const raw = nanoText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+        result = JSON.parse(raw) as ExtractionResult;
+      }
+    }
+  } catch {
+    // Non-fatal — proceed to cloud completion
+  }
+
+  // 2. Cloud LLM Fallback (if on-device AI is unavailable or gave empty result)
+  if (!result) {
+    try {
+      const response = await chatCompletion(
+        providerConfig,
+        {
+          model: modelId,
+          messages: [
+            { role: 'system', content: EXTRACTOR_SYSTEM },
+            {
+              role: 'user',
+              content: `Source URL: ${sourceUrl}\n\nContent:\n${truncated}`,
+            },
+          ],
+          temperature: 0,
+          max_tokens: 800,
+        },
+      );
+
+      // Record usage so passive memory is metered under user's budget
+      if (response.usage) {
+        const totalTokens = response.usage.total_tokens || estimatedTokens;
+        const costUsd = (totalTokens / 1_000_000) * costPerMillion;
+        await recordUsage(totalTokens, costUsd).catch(() => {});
+      }
+
+      const raw = ((response.choices[0]?.message?.content as string) ?? '')
+        .replace(/^```(?:json)?\s*/i, '')
+        .replace(/\s*```$/, '')
+        .trim();
+
+      result = JSON.parse(raw) as ExtractionResult;
+    } catch {
+      // Extractor is non-critical — silently skip on any error
+      return;
+    }
   }
 
   if (!result?.entities?.length) return;
@@ -130,7 +215,12 @@ export async function extractAndStoreEntities(
       const node = await upsertNode(
         entity.label,
         entity.type ?? 'unknown',
-        entity.attributes ?? {},
+        {
+          ...entity.attributes,
+          provenance: sourceUrl,
+          untrusted: 'true',
+          extractedAt: String(Date.now()),
+        },
         sourceUrl,
       );
       nodeIds.set(entity.label, node.id);

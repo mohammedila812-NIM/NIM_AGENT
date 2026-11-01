@@ -13,7 +13,6 @@ import { renderHighlight } from '../lib/overlay/mount';
  */
 export default defineContentScript({
   matches: ['<all_urls>'],
-  registration: 'runtime', // Injected on-demand when agent accesses tab
   main() {
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // Security: Only accept messages from our own extension background worker

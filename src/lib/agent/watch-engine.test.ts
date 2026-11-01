@@ -25,7 +25,7 @@ describe('Watch Engine & Tools', () => {
 
     expect(createOutput).toContain('MONITOR CREATED SUCCESSFULLY');
     expect(createOutput).toContain('MacBook Air M3 Price');
-    expect(createOutput).toContain('Every 15 minute(s)');
+    expect(createOutput).toContain('Every 15 minutes');
 
     // 2. List Watches
     const listOutput = await executeListWatches();

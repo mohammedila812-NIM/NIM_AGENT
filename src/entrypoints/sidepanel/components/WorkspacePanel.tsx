@@ -19,8 +19,10 @@ import {
   Code,
   Tag,
   Clock,
+  Archive,
 } from 'lucide-react';
 import { vfs, type VFSFile, type VFSStats } from '../../../lib/workspace/vfs';
+import { exportVfsFolderAsZip } from '../../../lib/workspace/exporter';
 import { MarkdownMessage } from './MarkdownMessage';
 
 export const WorkspacePanel: React.FC = () => {
@@ -148,6 +150,20 @@ export const WorkspacePanel: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
+  const handleExportZip = async () => {
+    const targetFolder = activeFolder === 'all' ? '/' : `/${activeFolder}`;
+    const { filename, zipBytes } = await exportVfsFolderAsZip(targetFolder);
+    const blob = new Blob([zipBytes.buffer as ArrayBuffer], { type: 'application/zip' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const handleEmptyTrash = async () => {
     await vfs.emptyTrash();
     await loadWorkspace();
@@ -227,6 +243,13 @@ export const WorkspacePanel: React.FC = () => {
             title="Export Workspace JSON Backup"
           >
             <Download className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={handleExportZip}
+            className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded border border-slate-700 transition"
+            title="Export Folder/Workspace as ZIP"
+          >
+            <Archive className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={() => void loadWorkspace()}

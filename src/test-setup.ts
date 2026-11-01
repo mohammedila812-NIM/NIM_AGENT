@@ -87,6 +87,7 @@ const chromeMock = {
   },
   tabs: {
     query: async () => [{ id: 1, url: 'https://example.com', active: true }],
+    get: async (tabId: number) => ({ id: tabId, url: 'https://example.com', active: true }),
     create: async ({ url }: { url: string }) => ({ id: 2, url, active: true }),
     update: async (tabId: number, props: unknown) => ({ id: tabId, ...props as object }),
     sendMessage: async (_tabId: number, _msg: unknown) => ({ success: true }),
@@ -101,6 +102,24 @@ const chromeMock = {
   scripting: {
     executeScript: async () => [{ result: true }],
     insertCSS: async () => {},
+  },
+  permissions: {
+    contains: async (_perm: { permissions?: string[] }) => true,
+    request: async (_perm: { permissions?: string[] }) => true,
+    remove: async (_perm: { permissions?: string[] }) => true,
+  },
+  debugger: {
+    attach: async (_target: { tabId?: number }, _version: string) => {},
+    detach: async (_target: { tabId?: number }) => {},
+    sendCommand: async (_target: { tabId?: number }, _method: string, _commandParams?: unknown) => ({}),
+    onEvent: {
+      addListener: () => {},
+      removeListener: () => {},
+    },
+    onDetach: {
+      addListener: () => {},
+      removeListener: () => {},
+    },
   },
 };
 

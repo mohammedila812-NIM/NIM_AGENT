@@ -168,4 +168,23 @@ describe('Swarm Coordinator — decomposeResearchTopic', () => {
     expect(result[1].name).toBe('BestBuy');
     expect(result[0].extractFields).toContain('price');
   });
+
+  describe('Entity Extractor Budget Governance', () => {
+    it('skips extraction when cost budget is exceeded', async () => {
+      const { extractAndStoreEntities } = await import('./entity-extractor');
+      const { chatCompletion } = await import('../llm/client');
+      const chatSpy = vi.mocked(chatCompletion);
+      chatSpy.mockClear();
+
+      await extractAndStoreEntities(
+        'This is a long test text with lots of entity content to extract about Apple MacBook Pro M3 and Microsoft Surface Laptop Studio.',
+        'https://example.com/tech',
+        { id: 'nim', label: 'NIM', baseUrl: 'https://api.nvidia.com', apiKey: 'key' },
+        'meta/llama-3.1-8b-instruct',
+        { costLimits: { perTaskTokens: 0, perDayTokens: 0, perDayUsd: 0 } },
+      );
+
+      expect(chatSpy).not.toHaveBeenCalled();
+    });
+  });
 });

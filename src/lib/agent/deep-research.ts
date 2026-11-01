@@ -338,23 +338,43 @@ ${findings.trim()}
   }
 
   /** Fetch page text or fallback to search snippet */
-  private async fetchPageText(url: string, fallbackSnippet: string): Promise<string> {
+  public async fetchPageText(url: string, fallbackSnippet: string): Promise<string> {
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 6000);
       const res = await fetch(url, { signal: controller.signal });
       clearTimeout(timeout);
+
+      // Validate Content-Type
+      const contentType = res.headers.get('content-type') || '';
+      const isHtmlOrText =
+        contentType.includes('text/') ||
+        contentType.includes('application/xhtml+xml') ||
+        contentType.includes('application/json');
+
+      if (contentType && !isHtmlOrText) {
+        return fallbackSnippet || 'Snippet unavailable (binary/non-text resource)';
+      }
+
+      // Check Content-Length (guard against oversized payloads > 10MB)
+      const contentLengthStr = res.headers.get('content-length');
+      if (contentLengthStr && parseInt(contentLengthStr, 10) > 10 * 1024 * 1024) {
+        return fallbackSnippet || 'Snippet unavailable (payload exceeds size threshold)';
+      }
+
       const html = await res.text();
+      const clean = cleanHtmlToText(html);
 
-      // Clean HTML to text
-      const clean = html
-        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-        .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
-        .replace(/<[^>]+>/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
+      // Check for empty client-rendered SPA containers or sparse pages
+      const isSpaPlaceholder =
+        clean.length < 150 ||
+        /you need to enable javascript|javascript is required|enable javascript to run this app/i.test(clean);
 
-      return clean.slice(0, 6000);
+      if (isSpaPlaceholder && fallbackSnippet && fallbackSnippet.length > clean.length) {
+        return `${fallbackSnippet} (Source rendered via client-side SPA)`;
+      }
+
+      return (clean || fallbackSnippet || 'Snippet unavailable').slice(0, 6000);
     } catch {
       return fallbackSnippet || 'Snippet unavailable';
     }
@@ -411,4 +431,35 @@ Generate the report in GitHub-flavored Markdown with the following structure:
 
     return res.choices[0]?.message?.content || '# Executive Dossier\n\nResearch concluded.';
   }
+}
+
+export function decodeHtmlEntities(text: string): string {
+  return text
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&#(\d+);/g, (_, code) => {
+      const num = Number(code);
+      return Number.isFinite(num) ? String.fromCharCode(num) : '';
+    })
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => {
+      const num = parseInt(hex, 16);
+      return Number.isFinite(num) ? String.fromCharCode(num) : '';
+    });
+}
+
+export function cleanHtmlToText(html: string): string {
+  const stripped = html
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+    .replace(/<noscript\b[^<]*(?:(?!<\/noscript>)<[^<]*)*<\/noscript>/gi, '')
+    .replace(/<svg\b[^<]*(?:(?!<\/svg>)<[^<]*)*<\/svg>/gi, '')
+    .replace(/<[^>]+>/g, ' ');
+
+  const decoded = decodeHtmlEntities(stripped);
+  return decoded.replace(/\s+/g, ' ').trim();
 }

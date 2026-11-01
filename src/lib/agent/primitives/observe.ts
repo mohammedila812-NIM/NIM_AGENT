@@ -91,6 +91,65 @@ export async function observePage(tabId: number, maxAffordances = 75): Promise<P
         }
       }
 
+      // Salience Ranking (Two-Stage Mind2Act):
+      // Prioritize active inputs, search controls, and primary buttons over passive links
+      function getSalience(el: HTMLElement): number {
+        let score = 0;
+        const tag = el.tagName.toLowerCase();
+        const role = el.getAttribute('role') || '';
+        const type = (el as HTMLInputElement).type?.toLowerCase() || '';
+
+        // 1. Text Inputs & Search Fields (Highest priority for goal completion)
+        if (tag === 'textarea' || (tag === 'input' && !['checkbox', 'radio', 'button', 'submit'].includes(type))) {
+          score += 100;
+          if (type === 'search' || /search|query|find|msg|message|chat/i.test((el as HTMLInputElement).name || el.id || el.getAttribute('placeholder') || '')) {
+            score += 30;
+          }
+        }
+        // 2. Selects, Checkboxes, Radios
+        else if (tag === 'select' || type === 'checkbox' || type === 'radio' || role === 'checkbox' || role === 'radio') {
+          score += 85;
+        }
+        // 3. Action Buttons & Submit controls
+        else if (tag === 'button' || role === 'button' || type === 'submit') {
+          score += 70;
+          const label = (el.getAttribute('aria-label') || el.textContent || '').toLowerCase();
+          if (/search|submit|login|sign in|send|direct|message|chat|next|play|confirm|buy|add/i.test(label)) {
+            score += 25;
+          }
+        }
+        // 4. Navigation tabs & menu items
+        else if (role === 'tab' || role === 'menuitem') {
+          score += 55;
+        }
+        // 5. Links
+        else {
+          score += 35;
+          const label = (el.getAttribute('aria-label') || el.textContent || '').toLowerCase();
+          const href = (el as HTMLAnchorElement).href || '';
+          if (/direct|message|chat|inbox|reels|profile|login|sign/i.test(label) || /direct|inbox|reels/i.test(href)) {
+            score += 30;
+          }
+        }
+
+        // Viewport boost: elements within current viewport receive +40
+        try {
+          const rect = el.getBoundingClientRect();
+          if (rect.top < window.innerHeight && rect.bottom > 0 && rect.left < window.innerWidth && rect.right > 0 && rect.width > 0 && rect.height > 0) {
+            score += 40;
+          }
+        } catch { /* ignore */ }
+
+        return score;
+      }
+
+      // Clear previous data-nim-id before tagging (Finding 21)
+      try {
+        document.querySelectorAll('[data-nim-id]').forEach((el) => el.removeAttribute('data-nim-id'));
+      } catch { /* ignore */ }
+
+      candidates.sort((a, b) => getSalience(b) - getSalience(a));
+
       let idCounter = 1;
       const actions: ActionAffordance[] = [];
       const inputs: InputAffordance[] = [];
@@ -222,6 +281,37 @@ export function formatAffordances(affordances: PageAffordances): string {
       }
     }
     lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * Formats PageAffordances into an ultra-compact Semantic AXTree syntax (saving ~70% tokens).
+ * Prioritizes high-salience controls directly for Small Language Models (SLMs).
+ */
+export function formatCompactAXTree(affordances: PageAffordances): string {
+  const lines: string[] = [
+    `[PAGE AXTree: "${affordances.title}"] (${affordances.totalAffordances} active controls):`,
+  ];
+
+  for (const inp of affordances.inputs) {
+    const val = inp.currentValue ? ` val="${inp.currentValue}"` : '';
+    const req = inp.required ? ' *req' : '';
+    lines.push(`  [${inp.id}] input:${inp.type} "${inp.label}"${val}${req}`);
+  }
+
+  for (const opt of affordances.options) {
+    if (opt.kind === 'select') {
+      const choices = (opt.choices || []).slice(0, 4).map((c) => `"${c}"`).join(',');
+      lines.push(`  [${opt.id}] select "${opt.label}" options=[${choices}]`);
+    } else {
+      lines.push(`  [${opt.id}] ${opt.kind} "${opt.label}" ${opt.checked ? '[x]' : '[ ]'}`);
+    }
+  }
+
+  for (const a of affordances.actions) {
+    lines.push(`  [${a.id}] ${a.kind} "${a.label}"`);
   }
 
   return lines.join('\n');

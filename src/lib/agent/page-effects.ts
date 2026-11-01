@@ -54,24 +54,12 @@ const EFFECT_CSS = `
   }
 `;
 
-function ensureStyles(doc: Document) {
+function _ensureStyles(doc: Document) {
   if (doc.getElementById('nim-fx-styles')) return;
   const s = doc.createElement('style');
   s.id = 'nim-fx-styles';
   s.textContent = EFFECT_CSS;
   doc.head.appendChild(s);
-}
-
-function getHost(doc: Document): HTMLDivElement {
-  ensureStyles(doc);
-  let host = doc.getElementById('nim-fx-host') as HTMLDivElement | null;
-  if (!host) {
-    host = doc.createElement('div');
-    host.id = 'nim-fx-host';
-    host.className = 'nim-fx-host';
-    doc.body.appendChild(host);
-  }
-  return host;
 }
 
 // ── Effect: Click ripple + cursor dot ────────────────────────────────────────
@@ -301,3 +289,209 @@ export async function fxFlash(tabId: number): Promise<void> {
     args: [],
   });
 }
+
+// ── Effect: Cinematic Ghost Cursor & Intent Badge ───────────────────────────
+
+export async function fxGhostCursor(
+  tabId: number,
+  target: string,
+  intentText = 'Interacting...',
+): Promise<void> {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: (targetStr: string, label: string) => {
+        const doc = document;
+        const numMatch = targetStr.trim().match(/^\[?(\d+)\]?$/) || targetStr.trim().match(/^id:(\d+)$/);
+        let el: HTMLElement | null = null;
+        if (numMatch) {
+          el = doc.querySelector(`[data-nim-id="${numMatch[1]}"]`);
+        }
+        if (!el) {
+          try {
+            el = doc.querySelector(targetStr);
+          } catch {
+            // ignore
+          }
+        }
+        if (!el) {
+          const all = Array.from(doc.querySelectorAll<HTMLElement>('button, a, input, select, textarea, [role="button"]'));
+          const lower = targetStr.toLowerCase();
+          el = all.find((e) => (e.textContent || '').toLowerCase().includes(lower)) || null;
+        }
+
+        const rect = el
+          ? el.getBoundingClientRect()
+          : { left: window.innerWidth / 2, top: window.innerHeight / 2, width: 20, height: 20 };
+        const destX = Math.max(10, Math.min(window.innerWidth - 30, rect.left + rect.width / 2));
+        const destY = Math.max(10, Math.min(window.innerHeight - 30, rect.top + rect.height / 2));
+
+        let h = doc.getElementById('nim-fx-host') as HTMLDivElement | null;
+        if (!h) {
+          h = doc.createElement('div');
+          h.id = 'nim-fx-host';
+          h.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483647;overflow:hidden;';
+          doc.body.appendChild(h);
+        }
+
+        const cursorContainer = doc.createElement('div');
+        cursorContainer.style.cssText = `
+          position: fixed;
+          left: ${destX}px;
+          top: ${destY}px;
+          pointer-events: none;
+          z-index: 2147483647;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          transition: all 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+          transform: translate(-4px, -4px);
+        `;
+
+        cursorContainer.innerHTML = `
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" style="filter: drop-shadow(0 2px 8px rgba(34,197,94,0.6));">
+            <path d="M4 4L11 20L14 13L21 10L4 4Z" fill="#22c55e" stroke="#ffffff" stroke-width="2" stroke-linejoin="round"/>
+          </svg>
+          <div style="background: rgba(15, 23, 42, 0.92); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.5); font-family: ui-sans-serif, system-ui, sans-serif; font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 9999px; white-space: nowrap; box-shadow: 0 4px 12px rgba(0,0,0,0.4); backdrop-filter: blur(4px);">
+            ${label}
+          </div>
+        `;
+
+        h.appendChild(cursorContainer);
+
+        const ripple = doc.createElement('div');
+        ripple.style.cssText = `
+          position: fixed;
+          left: ${destX - 20}px;
+          top: ${destY - 20}px;
+          width: 40px;
+          height: 40px;
+          border-radius: 50%;
+          border: 2px solid rgba(34, 197, 94, 0.9);
+          background: rgba(34, 197, 94, 0.2);
+          animation: nim-ripple 0.6s ease-out forwards;
+          pointer-events: none;
+        `;
+        h.appendChild(ripple);
+
+        setTimeout(() => {
+          cursorContainer.style.opacity = '0';
+          cursorContainer.style.transform = 'translate(-4px, -12px) scale(0.9)';
+          setTimeout(() => {
+            cursorContainer.remove();
+            ripple.remove();
+          }, 300);
+        }, 700);
+      },
+      args: [target, intentText],
+    });
+  } catch {
+    // Non-fatal overlay error
+  }
+}
+
+// ── Effect: Ambient In-Page Floating Telemetry Pill ──────────────────────────
+
+export interface PillState {
+  stepNumber: number;
+  tool: string;
+  status: 'running' | 'done' | 'error';
+  detail?: string;
+  taskId?: string;
+}
+
+export async function fxUpdatePill(tabId: number, state: PillState): Promise<void> {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: (st: PillState) => {
+        const doc = document;
+        let pill = doc.getElementById('nim-ambient-pill') as HTMLDivElement | null;
+        if (!pill) {
+          pill = doc.createElement('div');
+          pill.id = 'nim-ambient-pill';
+          pill.style.cssText = `
+            position: fixed;
+            bottom: 24px;
+            left: 24px;
+            z-index: 2147483646;
+            background: rgba(15, 23, 42, 0.92);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(59, 130, 246, 0.4);
+            border-radius: 9999px;
+            padding: 8px 14px;
+            color: #f8fafc;
+            font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-size: 12px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            user-select: none;
+            cursor: default;
+          `;
+          doc.body.appendChild(pill);
+        }
+
+        const isComplete = st.status === 'done';
+        const isErr = st.status === 'error';
+        const dotColor = isErr ? '#ef4444' : isComplete ? '#10b981' : '#3b82f6';
+        const dotGlow = isErr ? '0 0 8px #ef4444' : isComplete ? '0 0 8px #10b981' : '0 0 8px #3b82f6';
+
+        const labelText = isComplete
+          ? `Step ${st.stepNumber} complete`
+          : isErr
+          ? `Step ${st.stepNumber} failed`
+          : `Step ${st.stepNumber}: ${st.tool.replace(/_/g, ' ')}`;
+
+        pill.innerHTML = `
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${dotColor};box-shadow:${dotGlow};"></span>
+            <span style="color:#93c5fd;font-weight:600;font-size:11px;letter-spacing:0.02em;">NIM</span>
+          </div>
+          <span style="height:12px;width:1px;background:rgba(255,255,255,0.15);"></span>
+          <span style="color:#f1f5f9;font-weight:500;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${labelText}</span>
+          <button id="nim-pill-stop-btn" style="margin-left:4px;background:rgba(239,68,68,0.2);color:#fca5a5;border:1px solid rgba(239,68,68,0.4);padding:2px 8px;border-radius:9999px;font-size:10px;font-weight:600;cursor:pointer;transition:all 0.15s;">
+            Stop
+          </button>
+        `;
+
+        const stopBtn = pill.querySelector('#nim-pill-stop-btn');
+        if (stopBtn) {
+          stopBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+              chrome.runtime.sendMessage({ type: 'AGENT_STOP', taskId: st.taskId });
+            }
+            pill?.remove();
+          });
+        }
+      },
+      args: [state],
+    });
+  } catch {
+    // Non-fatal
+  }
+}
+
+export async function fxRemovePill(tabId: number): Promise<void> {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const pill = document.getElementById('nim-ambient-pill');
+        if (pill) {
+          pill.style.opacity = '0';
+          pill.style.transform = 'translateY(8px) scale(0.95)';
+          setTimeout(() => pill.remove(), 400);
+        }
+      },
+    });
+  } catch {
+    // Non-fatal
+  }
+}
+

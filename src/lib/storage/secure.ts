@@ -65,3 +65,27 @@ export async function loadWorkerConfig(): Promise<WorkerConfig | null> {
   return (result.workerConfig as WorkerConfig | undefined) ?? null;
 }
 
+/** Save Specialist configuration */
+export async function saveSpecialistSettings(
+  settings: import('../agent/specialist/types').SpecialistSettings,
+): Promise<void> {
+  await chrome.storage.local.set({ specialistSettings: settings });
+}
+
+/** Load Specialist configuration */
+export async function loadSpecialistSettings(): Promise<import('../agent/specialist/types').SpecialistSettings> {
+  const { DEFAULT_SPECIALIST_SETTINGS } = await import('../agent/specialist/types');
+  const result = await chrome.storage.local.get('specialistSettings');
+  const stored = result.specialistSettings as Partial<import('../agent/specialist/types').SpecialistSettings> | undefined;
+  if (!stored) return DEFAULT_SPECIALIST_SETTINGS;
+
+  return {
+    ...DEFAULT_SPECIALIST_SETTINGS,
+    ...stored,
+    roles: {
+      ...DEFAULT_SPECIALIST_SETTINGS.roles,
+      ...(stored.roles || {}),
+    },
+  };
+}
+

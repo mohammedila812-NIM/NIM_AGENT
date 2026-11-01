@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { Activity, Undo2, Save, Terminal, ChevronDown, ChevronRight, Check } from 'lucide-react';
+import React, { useState } from 'react';
+import { Activity, Undo2, Save, Terminal, ChevronDown, ChevronRight, Check, FileCode } from 'lucide-react';
 import { saveMacro } from '../../../lib/storage/tasks';
+import { exportWorkflowToVFS } from '../../../lib/export/playwright-generator';
 
 interface TraceStep {
   stepNumber: number;
@@ -20,7 +21,7 @@ interface TracePanelProps {
 }
 
 export const TracePanel: React.FC<TracePanelProps> = ({
-  activeTaskId,
+  activeTaskId: _activeTaskId,
   instruction,
   traceSteps,
   onUndoAction,
@@ -28,9 +29,32 @@ export const TracePanel: React.FC<TracePanelProps> = ({
   const [expandedSteps, setExpandedSteps] = useState<Record<number, boolean>>({});
   const [macroName, setMacroName] = useState('');
   const [savedMacro, setSavedMacro] = useState(false);
+  const [exportedPlaywright, setExportedPlaywright] = useState(false);
 
   const toggleStep = (stepNum: number) => {
     setExpandedSteps((prev) => ({ ...prev, [stepNum]: !prev[stepNum] }));
+  };
+
+  const handleExportPlaywright = async () => {
+    if (traceSteps.length === 0) return;
+    const actions = traceSteps
+      .filter((s) => s.toolName)
+      .map((s) => ({
+        action: {
+          type: s.toolName!,
+          ...s.toolArgs,
+        },
+      }));
+    const { code } = await exportWorkflowToVFS(actions, { testName: instruction || 'Trace Workflow' });
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(code);
+      }
+    } catch {
+      // clipboard error is non-fatal
+    }
+    setExportedPlaywright(true);
+    setTimeout(() => setExportedPlaywright(false), 2500);
   };
 
   const handleSaveAsMacro = async () => {
@@ -81,6 +105,14 @@ export const TracePanel: React.FC<TracePanelProps> = ({
           >
             {savedMacro ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
             {savedMacro ? 'Saved' : 'Save Macro'}
+          </button>
+          <button
+            onClick={handleExportPlaywright}
+            className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs flex items-center gap-1 transition"
+            title="Export actions to /code/automation.spec.ts in Workspace & Copy to Clipboard"
+          >
+            {exportedPlaywright ? <Check className="w-3.5 h-3.5" /> : <FileCode className="w-3.5 h-3.5" />}
+            {exportedPlaywright ? 'Copied & Saved' : 'Export Playwright'}
           </button>
         </div>
       )}

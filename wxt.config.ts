@@ -11,7 +11,7 @@ export default defineConfig({
   }),
   manifest: {
     name: 'NIM Agent — AI Browser Assistant',
-    version: '1.4.0',
+    version: '1.4.1',
     description: 'AI agentic browser assistant for research, automation, and tasks. Powered by NVIDIA NIM and OpenAI-compatible models.',
     permissions: [
       'activeTab',
@@ -23,6 +23,8 @@ export default defineConfig({
       'downloads',
       'notifications',
       'contextMenus',
+      'audioCapture',
+      'debugger',
     ],
     host_permissions: [
       'https://integrate.api.nvidia.com/*',

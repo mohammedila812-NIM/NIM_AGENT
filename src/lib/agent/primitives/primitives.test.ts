@@ -4,7 +4,7 @@ import {
   deepQuerySelectorAll,
   tagPiercedInteractiveElements,
 } from './shadow-piercer';
-import { formatAffordances, type PageAffordances } from './observe';
+import { formatAffordances, formatCompactAXTree, type PageAffordances } from './observe';
 
 describe('Phase 1 Primitives Suite', () => {
   beforeEach(() => {
@@ -106,6 +106,29 @@ describe('Phase 1 Primitives Suite', () => {
       expect(formatted).toContain('[REQUIRED]');
       expect(formatted).toContain('[5] CHECKBOX: "Sign up for newsletter" (CHECKED)');
       expect(formatted).toContain('[6] SELECT: "Shipping Method" options=["Standard (Free)", "Express ($15)"]');
+    });
+
+    it('formats affordances into token-condensed AXTree format for SLMs', () => {
+      const mockAffordances: PageAffordances = {
+        title: 'Instagram Explore',
+        url: 'https://instagram.com/explore',
+        actions: [
+          { id: 2, kind: 'link', label: 'Direct Messages' },
+        ],
+        inputs: [
+          { id: 1, type: 'search', name: 'query', label: 'Search', currentValue: 'nature', required: true },
+        ],
+        options: [
+          { id: 3, kind: 'checkbox', label: 'Filter unread', checked: true },
+        ],
+        totalAffordances: 3,
+      };
+
+      const axtree = formatCompactAXTree(mockAffordances);
+      expect(axtree).toContain('[PAGE AXTree: "Instagram Explore"]');
+      expect(axtree).toContain('[1] input:search "Search" val="nature" *req');
+      expect(axtree).toContain('[2] link "Direct Messages"');
+      expect(axtree).toContain('[3] checkbox "Filter unread" [x]');
     });
   });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { TimedDeepResearchSession } from './deep-research';
+import { TimedDeepResearchSession, cleanHtmlToText } from './deep-research';
 import { vfs } from '../workspace/vfs';
 
 // Mock LLM chat completion
@@ -114,5 +114,74 @@ describe('TimedDeepResearchSession', () => {
     session.stop();
     // Should not throw
     expect(true).toBe(true);
+  });
+
+  describe('HTML Processing & SPA Fallback (FINDING-P2-06)', () => {
+    it('decodes HTML entities and strips unwanted tags', () => {
+      const rawHtml = `
+        <html>
+          <head><style>body { color: red; }</style></head>
+          <body>
+            <script>console.log("secret");</script>
+            <noscript>Turn on JS</noscript>
+            <svg><path d="M0 0"/></svg>
+            <h1>NVIDIA &amp; AI &quot;Breakthroughs&quot;</h1>
+            <p>Prices &lt; $500 &amp;&amp; rating &gt; 4.5. It&#39;s fast &nbsp; indeed.</p>
+          </body>
+        </html>
+      `;
+      const cleaned = cleanHtmlToText(rawHtml);
+      expect(cleaned).not.toContain('<style>');
+      expect(cleaned).not.toContain('<script>');
+      expect(cleaned).not.toContain('console.log');
+      expect(cleaned).toContain('NVIDIA & AI "Breakthroughs"');
+      expect(cleaned).toContain("Prices < $500 && rating > 4.5. It's fast indeed.");
+    });
+
+    it('falls back to search snippet when response is a client-rendered SPA container', async () => {
+      const session = new TimedDeepResearchSession({
+        topic: 'AI Benchmark',
+        durationMinutes: 1,
+        providerConfig: { id: 'mock', label: 'Mock', baseUrl: 'https://mock.api', apiKey: 'mock' },
+        model: { id: 'mock', contextLength: 32000, supportsTools: true, supportsVision: false, isAgentTuned: true, providerLabel: 'Mock' },
+      });
+
+      // Mock global fetch returning SPA empty container
+      const originalFetch = global.fetch;
+      global.fetch = vi.fn().mockResolvedValue({
+        headers: new Headers({ 'content-type': 'text/html; charset=utf-8' }),
+        text: async () => '<html><body><div id="root"></div><script src="app.js"></script><noscript>You need to enable JavaScript to run this app.</noscript></body></html>',
+      } as unknown as Response);
+
+      try {
+        const text = await session.fetchPageText('https://spa-example.com', 'Detailed snippet about AI Benchmark results from search engine');
+        expect(text).toContain('Detailed snippet about AI Benchmark results');
+        expect(text).toContain('client-side SPA');
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
+
+    it('falls back to search snippet when response is a binary resource', async () => {
+      const session = new TimedDeepResearchSession({
+        topic: 'AI Benchmark',
+        durationMinutes: 1,
+        providerConfig: { id: 'mock', label: 'Mock', baseUrl: 'https://mock.api', apiKey: 'mock' },
+        model: { id: 'mock', contextLength: 32000, supportsTools: true, supportsVision: false, isAgentTuned: true, providerLabel: 'Mock' },
+      });
+
+      const originalFetch = global.fetch;
+      global.fetch = vi.fn().mockResolvedValue({
+        headers: new Headers({ 'content-type': 'application/pdf' }),
+        text: async () => '%PDF-1.4 binary content',
+      } as unknown as Response);
+
+      try {
+        const text = await session.fetchPageText('https://example.com/paper.pdf', 'Search snippet for whitepaper');
+        expect(text).toBe('Search snippet for whitepaper');
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
   });
 });

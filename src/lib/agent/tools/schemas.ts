@@ -54,6 +54,20 @@ export const ReadPageSchema = z.object({
 export const ScreenshotSchema = z.object({
   tool: z.literal('screenshot'),
   reason: z.string().min(1, 'must explain why DOM extraction was insufficient'),
+  annotateWithMarks: z.boolean().optional(),
+});
+
+export const VisualInspectSchema = z.object({
+  tool: z.literal('visual_inspect'),
+  query: z.string().min(1, 'query describing what visual information to inspect'),
+  targetElement: z.string().optional(),
+});
+
+export const AutoAdvanceMediaSchema = z.object({
+  tool: z.literal('auto_advance_media'),
+  action: z.enum(['start', 'stop', 'status']).default('start'),
+  maxReels: z.number().int().min(1).max(200).optional(),
+  scrollKey: z.enum(['ArrowDown', 'PageDown', 'scroll']).optional(),
 });
 
 export const ScrollSchema = z.object({
@@ -153,7 +167,11 @@ export const CreateWatchSchema = z.object({
   type: z.enum(['element_text', 'price', 'dom_selector', 'macro', 'llm_condition']).default('price'),
   selector: z.string().optional(),
   conditionPrompt: z.string().optional(),
-  intervalMinutes: z.number().int().min(1).max(1440).default(30),
+  // intervalSeconds is the preferred field (use when user says "every 20 seconds").
+  // intervalMinutes is a legacy fallback (use when user says "every 5 minutes").
+  // If both are provided, intervalSeconds takes precedence.
+  intervalSeconds: z.number().positive().max(86400).optional(),
+  intervalMinutes: z.number().positive().max(1440).optional(),
 });
 
 export const ListWatchesSchema = z.object({
@@ -254,6 +272,144 @@ export const SwarmResearchSchema = z.object({
   maxWorkers: z.number().int().min(1).max(4).optional(),
 });
 
+export const BypassAnnoyancesSchema = z.object({
+  tool: z.literal('bypass_annoyances'),
+});
+
+export const ClonePageMarkdownSchema = z.object({
+  tool: z.literal('clone_page_markdown'),
+  includeLinks: z.boolean().optional(),
+  saveToWorkspace: z.boolean().optional(),
+});
+
+export const WatchPageChangesSchema = z.object({
+  tool: z.literal('watch_page_changes'),
+  action: z.enum(['start', 'stop', 'status']).optional(),
+  target: z.string().optional(),
+  changeType: z.enum(['any', 'text', 'mutation', 'attribute', 'count']).optional(),
+  condition: z.string().optional(),
+  actionOnDetect: z.enum(['ask', 'auto_act', 'notify']).optional(),
+  autonomousInstruction: z.string().optional(),
+  allowSending: z.boolean().optional(),
+  stopAfterChange: z.boolean().optional(),
+  timeoutSeconds: z.number().int().min(5).max(86400).optional(),
+});
+
+export const InspectElementSchema = z.object({
+  tool: z.literal('inspect_element'),
+  selector: z.string().optional(),
+  nodeId: z.number().int().optional(),
+});
+
+export const ReadConsoleSchema = z.object({
+  tool: z.literal('read_console'),
+  level: z.enum(['error', 'warning', 'log', 'all']).optional(),
+});
+
+export const ReadNetworkSchema = z.object({
+  tool: z.literal('read_network'),
+  includeResponseBody: z.boolean().optional(),
+  filter: z.string().optional(),
+});
+
+export const ReadStorageSchema = z.object({
+  tool: z.literal('read_storage'),
+  type: z.enum(['localStorage', 'sessionStorage', 'cookies']),
+});
+
+export const GetAxTreeSchema = z.object({
+  tool: z.literal('get_ax_tree'),
+  maxDepth: z.number().int().min(1).max(10).optional(),
+});
+
+export const EditElementSchema = z.object({
+  tool: z.literal('edit_element'),
+  selector: z.string(),
+  outerHTML: z.string().optional(),
+  attributeName: z.string().optional(),
+  attributeValue: z.string().optional(),
+});
+
+export const EditStylesSchema = z.object({
+  tool: z.literal('edit_styles'),
+  selector: z.string(),
+  cssText: z.string(),
+});
+
+export const LiveEditScriptSchema = z.object({
+  tool: z.literal('live_edit_script'),
+  scriptId: z.string(),
+  newSource: z.string(),
+});
+
+export const MockRequestSchema = z.object({
+  tool: z.literal('mock_request'),
+  urlPattern: z.string(),
+  responseCode: z.number().int().optional(),
+  responseBody: z.string().optional(),
+});
+
+export const RunInPageSchema = z.object({
+  tool: z.literal('run_in_page'),
+  expression: z.string(),
+});
+
+export const TrustedClickSchema = z.object({
+  tool: z.literal('trusted_click'),
+  x: z.number(),
+  y: z.number(),
+  clickLabel: z.string().optional(),
+});
+
+export const TrustedTypeSchema = z.object({
+  tool: z.literal('trusted_type'),
+  text: z.string(),
+  fieldName: z.string().optional(),
+});
+
+export const UndoDevToolsEditSchema = z.object({
+  tool: z.literal('undo_devtools_edit'),
+});
+
+export const DevToolsStatusSchema = z.object({
+  tool: z.literal('devtools_status'),
+});
+
+export const DevToolsDetachSchema = z.object({
+  tool: z.literal('devtools_detach'),
+});
+
+export const DelegateToSpecialistSchema = z.object({
+  tool: z.literal('delegate_to_specialist'),
+  role: z.enum(['coder', 'debugger', 'analyst']),
+  goal: z.string(),
+  context: z.string().optional(),
+  maxTier: z.enum(['T0', 'T1', 'T2', 'T3']),
+  maxSteps: z.number().int().min(1).max(20).optional(),
+  mode: z.enum(['async', 'sync']).optional(),
+});
+
+export const CheckSpecialistSchema = z.object({
+  tool: z.literal('check_specialist'),
+  jobId: z.string(),
+});
+
+export const AwaitSpecialistSchema = z.object({
+  tool: z.literal('await_specialist'),
+  jobId: z.string(),
+  timeoutMs: z.number().int().min(1000).max(120000).optional(),
+});
+
+export const CancelSpecialistSchema = z.object({
+  tool: z.literal('cancel_specialist'),
+  jobId: z.string(),
+});
+
+export const RollbackSpecialistEditsSchema = z.object({
+  tool: z.literal('rollback_specialist_edits'),
+  jobId: z.string(),
+});
+
 export const ToolCallSchema = z.discriminatedUnion('tool', [
   ClickSchema,
   TypeSchema,
@@ -264,6 +420,11 @@ export const ToolCallSchema = z.discriminatedUnion('tool', [
   WebSearchSchema,
   ReadPageSchema,
   ScreenshotSchema,
+  VisualInspectSchema,
+  AutoAdvanceMediaSchema,
+  BypassAnnoyancesSchema,
+  ClonePageMarkdownSchema,
+  WatchPageChangesSchema,
   ScrollSchema,
   SummarizeSchema,
   ListTabsSchema,
@@ -293,6 +454,26 @@ export const ToolCallSchema = z.discriminatedUnion('tool', [
   KnowledgeGraphAddSchema,
   KnowledgeGraphRelateSchema,
   SwarmResearchSchema,
+  InspectElementSchema,
+  ReadConsoleSchema,
+  ReadNetworkSchema,
+  ReadStorageSchema,
+  GetAxTreeSchema,
+  EditElementSchema,
+  EditStylesSchema,
+  LiveEditScriptSchema,
+  MockRequestSchema,
+  RunInPageSchema,
+  TrustedClickSchema,
+  TrustedTypeSchema,
+  UndoDevToolsEditSchema,
+  DevToolsStatusSchema,
+  DevToolsDetachSchema,
+  DelegateToSpecialistSchema,
+  CheckSpecialistSchema,
+  AwaitSpecialistSchema,
+  CancelSpecialistSchema,
+  RollbackSpecialistEditsSchema,
 ]);
 
 export type ValidatedToolCall = z.infer<typeof ToolCallSchema>;

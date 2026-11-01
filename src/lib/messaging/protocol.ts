@@ -38,7 +38,32 @@ export type AgentActionType =
   | 'knowledge_graph_query'
   | 'knowledge_graph_add'
   | 'knowledge_graph_relate'
-  | 'swarm_research';
+  | 'swarm_research'
+  | 'visual_inspect'
+  | 'auto_advance_media'
+  | 'bypass_annoyances'
+  | 'clone_page_markdown'
+  | 'watch_page_changes'
+  | 'inspect_element'
+  | 'read_console'
+  | 'read_network'
+  | 'read_storage'
+  | 'get_ax_tree'
+  | 'edit_element'
+  | 'edit_styles'
+  | 'live_edit_script'
+  | 'mock_request'
+  | 'run_in_page'
+  | 'trusted_click'
+  | 'trusted_type'
+  | 'undo_devtools_edit'
+  | 'devtools_status'
+  | 'devtools_detach'
+  | 'delegate_to_specialist'
+  | 'check_specialist'
+  | 'await_specialist'
+  | 'cancel_specialist'
+  | 'rollback_specialist_edits';
 
 
 export interface AgentAction {
@@ -214,6 +239,28 @@ const BridgeStateChangedSchema = z.object({
   state: z.enum(['disconnected', 'connecting', 'connected', 'error']),
 });
 
+const PageChangeDetectedSchema = z.object({
+  type: z.literal('PAGE_CHANGE_DETECTED'),
+  target: z.string(),
+  summary: z.string(),
+  actionOnDetect: z.enum(['ask', 'auto_act', 'notify']).optional(),
+  autonomousInstruction: z.string().optional(),
+  url: z.string().optional(),
+  timestamp: z.number().optional(),
+  tabId: z.number().optional(),
+});
+
+const SentinelTriggerActionSchema = z.object({
+  type: z.literal('SENTINEL_TRIGGER_ACTION'),
+  instruction: z.string(),
+  changeSummary: z.string().optional(),
+  tabId: z.number().optional(),
+});
+
+const DevToolsKillSwitchSchema = z.object({
+  type: z.literal('DEVTOOLS_KILL_SWITCH'),
+});
+
 export const MessageSchema = z.discriminatedUnion('type', [
   AgentStartSchema,
   AgentStopSchema,
@@ -225,6 +272,7 @@ export const MessageSchema = z.discriminatedUnion('type', [
   HeartbeatSchema,
   PingSchema,
   PongSchema,
+  DevToolsKillSwitchSchema,
   StreamChunkSchema,
   StreamDoneSchema,
   TaskStatusSchema,
@@ -240,6 +288,8 @@ export const MessageSchema = z.discriminatedUnion('type', [
   BridgeDisconnectSchema,
   BridgeGetStateSchema,
   BridgeStateChangedSchema,
+  PageChangeDetectedSchema,
+  SentinelTriggerActionSchema,
 ]);
 
 export type ExtensionMessage = z.infer<typeof MessageSchema>;

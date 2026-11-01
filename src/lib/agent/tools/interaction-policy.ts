@@ -17,7 +17,10 @@ export function shouldUseFallbackVision(
   domContent: string,
   failedDomAttempts: number,
   visionOptIn: boolean,
+  supportsVision = true,
 ): boolean {
+  // If the model does not support multimodal vision, vision is strictly disabled
+  if (!supportsVision) return false;
   if (visionOptIn) return true;
   if (domContent.trim().length < MIN_DOM_CHARS) return true;
   if (failedDomAttempts >= 2) return true;
